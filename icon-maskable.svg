@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable icon: design fits inside the safe zone (40% inset for Android adaptive icons) -->
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A2A45"/>
+      <stop offset="100%" stop-color="#0F1B2D"/>
+    </linearGradient>
+    <linearGradient id="brass2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#D9B97A"/>
+      <stop offset="100%" stop-color="#A8893F"/>
+    </linearGradient>
+  </defs>
+  <!-- Full bleed background -->
+  <rect width="512" height="512" fill="url(#bg2)"/>
+  <!-- Logo confined to inner 60% safe zone -->
+  <g fill="url(#brass2)" transform="translate(102, 102) scale(0.6)">
+    <path d="M 200 130
+             L 248 130
+             L 248 350
+             L 360 350
+             L 360 320
+             Q 360 308 348 308
+             L 290 308
+             Q 280 308 280 298
+             L 280 130
+             Q 280 118 268 118
+             L 220 118
+             Q 200 118 200 138 Z"/>
+    <path d="M 195 130 L 285 130 L 285 142 L 195 142 Z" opacity="0.85"/>
+    <path d="M 195 350 L 285 350 L 285 362 L 195 362 Z" opacity="0.85"/>
+  </g>
+</svg>

@@ -1,0 +1,2642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lore">
+<meta name="theme-color" content="#0F1B2D">
+<title>Lore — Pocket Audio Guide</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script>
+  // Register service worker (only when served over HTTPS / localhost)
+  // updateViaCache: 'none' forces a fresh fetch of sw.js on every page load,
+  // so deploys take effect on the next reload rather than cached forever.
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+    });
+    // When a new service worker takes control, reload once so the user gets the latest UI.
+    let __refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (__refreshing) return;
+      __refreshing = true;
+      window.location.reload();
+    });
+  }
+</script>
+<style>
+  :root {
+    --navy: #0F1B2D;
+    --navy-2: #1A2A45;
+    --brass: #C9A961;
+    --brass-deep: #A8893F;
+    --parchment: #F5F1EA;
+    --parchment-2: #ECE5D7;
+    --ink: #1A1A1A;
+    --muted: #6B6B6B;
+    --line: #E2DACB;
+    --good: #2F7D4F;
+    --warm: #B95934;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--ink); }
+  body { display: flex; align-items: center; justify-content: center; }
+
+  #frame {
+    width: 100%; height: 100%;
+    max-width: 430px; max-height: 932px;
+    background: var(--parchment);
+    position: relative; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
+  @media (min-width: 480px) {
+    body { background: #1a1a1a; }
+    #frame { border-radius: 44px; border: 8px solid #111; }
+  }
+
+  .status-bar {
+    height: 44px; padding: 0 22px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 15px; font-weight: 600; color: var(--ink);
+    background: transparent; position: relative; z-index: 10;
+    flex-shrink: 0;
+  }
+  .status-bar.dark { color: var(--parchment); }
+
+  .view { position: absolute; inset: 0; display: flex; flex-direction: column; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 220ms ease, visibility 0s linear 220ms; overflow: hidden; }
+  .view.active { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity 220ms ease, visibility 0s linear 0s; }
+  .view-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 110px; }
+
+  .tabbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 84px; padding: 8px 0 28px;
+    background: rgba(245, 241, 234, 0.92);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-around; align-items: center;
+    z-index: 50;
+  }
+  .tab {
+    background: none; border: 0; padding: 6px 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--muted); font: inherit; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    cursor: pointer;
+  }
+  .tab.active { color: var(--navy); }
+  .tab svg { width: 26px; height: 26px; stroke-width: 1.6; }
+  .tab.active svg { stroke-width: 2; }
+
+  h1, h2, h3 { font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  h1 { font-size: 36px; line-height: 1.1; }
+  h2 { font-size: 26px; line-height: 1.2; }
+  h3 { font-size: 19px; line-height: 1.3; }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass-deep); }
+  .body-text { font-size: 16px; line-height: 1.55; color: var(--ink); }
+  .muted { color: var(--muted); font-size: 14px; }
+
+  /* HOME */
+  .home-header { padding: 6px 24px 18px; }
+  .greeting { font-size: 15px; color: var(--muted); margin-top: 4px; }
+  .location-card {
+    margin: 12px 24px 20px;
+    background: linear-gradient(160deg, var(--navy) 0%, var(--navy-2) 100%);
+    color: var(--parchment);
+    border-radius: 22px;
+    padding: 22px 22px 20px;
+    position: relative; overflow: hidden;
+  }
+  .location-card::after {
+    content: ""; position: absolute; right: -40px; top: -40px; width: 180px; height: 180px;
+    background: radial-gradient(circle, rgba(201,169,97,0.25) 0%, transparent 65%);
+  }
+  .loc-row { display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brass); font-weight: 700; }
+  .loc-row svg { width: 14px; height: 14px; }
+  .loc-name { font-family: "Cormorant Garamond", Georgia, serif; font-size: 30px; font-weight: 600; margin: 6px 0 4px; line-height: 1.05; }
+  .loc-sub { font-size: 13px; opacity: 0.8; }
+  .demo-pill { position: absolute; top: 14px; right: 14px; font-size: 9px; padding: 4px 8px; background: rgba(201,169,97,0.2); color: var(--brass); border: 1px solid rgba(201,169,97,0.35); border-radius: 999px; letter-spacing: 0.1em; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+
+  .tap-btn {
+    margin: 0 24px 18px;
+    background: var(--brass);
+    color: var(--navy);
+    border: 0;
+    padding: 22px 24px;
+    border-radius: 22px;
+    font: inherit; font-size: 18px; font-weight: 700;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    box-shadow: 0 12px 30px rgba(201,169,97,0.35);
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    transition: transform 120ms ease;
+    width: calc(100% - 48px);
+  }
+  .tap-btn:active { transform: scale(0.98); }
+  .tap-btn svg { width: 24px; height: 24px; }
+
+  .nearby-title { padding: 12px 24px 10px; display: flex; align-items: center; justify-content: space-between; }
+  .nearby-title .eyebrow { color: var(--muted); }
+  .nearby-list { padding: 0 16px; }
+  .nearby-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px; border-radius: 16px;
+    cursor: pointer;
+  }
+  .nearby-item:active { background: var(--parchment-2); }
+  .thumb { width: 56px; height: 56px; border-radius: 14px; flex-shrink: 0; background-size: cover; background-position: center; background-color: var(--parchment-2); }
+  .thumb.sm { width: 44px; height: 44px; border-radius: 10px; }
+  .nearby-info { flex: 1; min-width: 0; }
+  .nearby-name { font-family: "Cormorant Garamond", Georgia, serif; font-size: 18px; font-weight: 600; line-height: 1.2; }
+  .nearby-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .chev { color: var(--muted); }
+
+  /* EXPLAINER */
+  #explainer { background: var(--parchment); z-index: 100; transform: translateY(100%); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 320ms; }
+  #explainer.active { transform: translateY(0); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 0s; }
+  .explainer-hero { height: 320px; background-size: cover; background-position: center; position: relative; flex-shrink: 0; }
+  .explainer-hero::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,27,45,0.45) 0%, transparent 30%, transparent 60%, var(--parchment) 100%); }
+  .round-btn { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.95); border: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(10px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .round-btn:active { transform: scale(0.92); }
+  .explainer-back { position: absolute; top: max(50px, env(safe-area-inset-top, 0px) + 12px); left: 16px; z-index: 5; }
+  .explainer-actions { position: absolute; top: max(50px, env(safe-area-inset-top, 0px) + 12px); right: 16px; display: flex; gap: 8px; z-index: 5; }
+  .explainer-title-wrap { position: absolute; bottom: 24px; left: 24px; right: 24px; color: var(--parchment); }
+  .explainer-place { font-family: "Cormorant Garamond", Georgia, serif; font-size: 36px; font-weight: 600; line-height: 1.05; text-shadow: 0 2px 18px rgba(0,0,0,0.4); }
+  .explainer-loc { font-size: 13px; opacity: 0.95; margin-top: 4px; text-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+  .explainer-body { padding: 4px 24px 24px; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 16px; }
+  .saved-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--good); background: rgba(47,125,79,0.1); padding: 6px 10px; border-radius: 999px; }
+  .add-route-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--navy); background: rgba(15,27,45,0.08); padding: 6px 10px; border-radius: 999px; cursor: pointer; border: 0; font-family: inherit; }
+  .add-route-pill:hover { background: rgba(15,27,45,0.14); }
+  .transcript { font-family: "Cormorant Garamond", Georgia, serif; font-size: 19px; line-height: 1.55; color: var(--ink); }
+  .transcript p { margin: 0 0 14px; }
+  .transcript .word.spoken { background: linear-gradient(180deg, transparent 60%, rgba(201,169,97,0.45) 60%); }
+  .citations { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .cite { font-size: 12px; color: var(--muted); margin: 6px 0; display: flex; align-items: center; gap: 6px; }
+  .cite svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+  .audio-bar { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(15,27,45,0.96); backdrop-filter: blur(20px); color: var(--parchment); padding: 14px 20px 28px; display: flex; align-items: center; gap: 14px; z-index: 60; }
+  .play-btn { width: 52px; height: 52px; border-radius: 50%; background: var(--brass); color: var(--navy); border: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+  .play-btn svg { width: 24px; height: 24px; }
+  .audio-meta { flex: 1; min-width: 0; }
+  .audio-progress { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.18); margin-top: 6px; overflow: hidden; }
+  .audio-progress-fill { height: 100%; background: var(--brass); width: 0%; transition: width 200ms linear; }
+  .audio-time { font-size: 11px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+  /* JOURNAL */
+  .journal-header { padding: 8px 24px 14px; }
+  .journal-map-wrap { margin: 0 16px 18px; border-radius: 18px; overflow: hidden; background: var(--navy); border: 1px solid var(--line); }
+  .journal-map-svg { width: 100%; display: block; }
+  .journal-map-svg .map-pin { transition: transform 200ms; }
+  .journal-map-svg .map-pin:hover { transform: scale(1.4); }
+  .journal-map-stats { display: flex; padding: 12px 14px; background: var(--navy-2); }
+  .journal-map-stats .ms { flex: 1; text-align: center; }
+  .journal-map-stats .ms-num { font-family: "Cormorant Garamond", Georgia, serif; font-size: 22px; font-weight: 600; color: var(--brass); }
+  .journal-map-stats .ms-label { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(245,241,234,0.7); margin-top: 2px; }
+  .trip-card { margin: 12px 24px 8px; padding: 16px; border-radius: 18px; background: white; border: 1px solid var(--line); }
+  .trip-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .trip-name { font-family: "Cormorant Garamond", Georgia, serif; font-size: 22px; font-weight: 600; }
+  .trip-dates { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .trip-count { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brass-deep); background: rgba(201,169,97,0.15); padding: 4px 10px; border-radius: 999px; }
+  .entry { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer; }
+  .entry:first-of-type { border-top: 0; }
+  .entry-info { flex: 1; min-width: 0; }
+  .entry-name { font-size: 15px; font-weight: 600; }
+  .entry-time { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .empty { margin: 60px 24px 0; text-align: center; color: var(--muted); }
+  .empty h3 { color: var(--ink); margin-bottom: 8px; }
+
+  /* ROUTES */
+  .routes-header { padding: 8px 24px 18px; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+  .new-route-btn { background: var(--navy); color: var(--parchment); border: 0; padding: 10px 16px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .new-route-btn svg { width: 14px; height: 14px; }
+  .section-title { padding: 16px 24px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+  .route-list { padding: 0 16px; display: flex; flex-direction: column; gap: 12px; }
+  .route-card { display: flex; gap: 14px; background: white; border: 1px solid var(--line); border-radius: 18px; padding: 12px; cursor: pointer; align-items: stretch; overflow: hidden; }
+  .route-card:active { background: var(--parchment-2); }
+  .route-cover { width: 92px; height: 92px; border-radius: 14px; flex-shrink: 0; background-size: cover; background-position: center; background-color: var(--parchment-2); position: relative; }
+  .route-cover .stops-badge { position: absolute; bottom: 6px; left: 6px; background: rgba(15,27,45,0.85); color: var(--parchment); font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 999px; letter-spacing: 0.05em; }
+  .route-info { flex: 1; min-width: 0; padding: 4px 0; display: flex; flex-direction: column; }
+  .route-name { font-family: "Cormorant Garamond", Georgia, serif; font-size: 19px; font-weight: 600; line-height: 1.15; }
+  .route-author { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
+  .author-dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, var(--brass), var(--warm)); color: white; font-size: 9px; font-weight: 700; text-align: center; line-height: 16px; }
+  .route-meta-row { font-size: 12px; color: var(--muted); margin-top: auto; display: flex; align-items: center; gap: 10px; }
+  .progress-mini { flex: 1; max-width: 90px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .progress-mini-fill { height: 100%; background: var(--good); }
+
+  /* ROUTE DETAIL */
+  #routeDetail { background: var(--parchment); z-index: 90; transform: translateY(100%); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 320ms; }
+  #routeDetail.active { transform: translateY(0); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 0s; }
+  .rd-hero { height: 280px; background-size: cover; background-position: center; position: relative; flex-shrink: 0; }
+  .rd-hero::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,27,45,0.4) 0%, transparent 30%, transparent 50%, rgba(15,27,45,0.85) 100%); }
+  .rd-back { position: absolute; top: 50px; left: 16px; }
+  .rd-share { position: absolute; top: 50px; right: 16px; }
+  .rd-titleblock { position: absolute; bottom: 22px; left: 24px; right: 24px; color: var(--parchment); }
+  .rd-author-line { font-size: 12px; opacity: 0.9; letter-spacing: 0.05em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .rd-name { font-family: "Cormorant Garamond", Georgia, serif; font-size: 32px; line-height: 1.1; font-weight: 600; text-shadow: 0 2px 18px rgba(0,0,0,0.4); }
+  .rd-loc { font-size: 13px; opacity: 0.9; margin-top: 4px; }
+  .rd-body { padding: 18px 24px 24px; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .rd-summary { display: flex; gap: 16px; margin-bottom: 16px; padding: 14px 16px; background: white; border: 1px solid var(--line); border-radius: 14px; }
+  .rd-summary .stat { text-align: center; flex: 1; }
+  .rd-summary .stat-num { font-family: "Cormorant Garamond", Georgia, serif; font-size: 22px; font-weight: 600; color: var(--navy); }
+  .rd-summary .stat-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+  .rd-desc { font-size: 15px; line-height: 1.55; margin: 12px 0 18px; color: var(--ink); }
+  .rd-stop { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); align-items: center; cursor: pointer; }
+  .rd-stop:first-of-type { border-top: 0; }
+  .stop-num { width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: var(--parchment); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; font-family: -apple-system, sans-serif; }
+  .stop-num.visited { background: var(--good); }
+  .start-route-btn { position: absolute; bottom: 24px; left: 24px; right: 24px; background: var(--brass); color: var(--navy); border: 0; padding: 18px; border-radius: 18px; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: 0 12px 30px rgba(201,169,97,0.35); z-index: 5; }
+  .start-route-btn:disabled { opacity: 0.6; }
+
+  /* FOLLOWING MODE */
+  #following { background: var(--navy); color: var(--parchment); z-index: 110; transform: translateY(100%); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 320ms; }
+  #following.active { transform: translateY(0); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 0s; }
+  .follow-header { padding: 12px 20px 8px; display: flex; align-items: center; justify-content: space-between; }
+  .follow-progress-text { font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass); font-weight: 700; }
+  .follow-exit { background: rgba(255,255,255,0.1); color: var(--parchment); border: 0; padding: 6px 12px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .follow-progress-bar { margin: 8px 20px 16px; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden; }
+  .follow-progress-fill { height: 100%; background: var(--brass); transition: width 320ms ease; }
+  .follow-route-name { padding: 0 24px 4px; font-size: 13px; opacity: 0.7; }
+  .follow-stop-name { padding: 0 24px 14px; font-family: "Cormorant Garamond", Georgia, serif; font-size: 30px; font-weight: 600; line-height: 1.1; color: var(--parchment); }
+  .follow-image { margin: 0 24px; height: 220px; border-radius: 18px; background-size: cover; background-position: center; background-color: var(--navy-2); }
+  .follow-actions { padding: 20px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .follow-listen { background: var(--brass); color: var(--navy); border: 0; padding: 18px; border-radius: 18px; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .follow-next { background: rgba(255,255,255,0.12); color: var(--parchment); border: 0; padding: 16px; border-radius: 18px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .follow-skip { background: transparent; color: rgba(255,255,255,0.5); border: 0; padding: 8px; font: inherit; font-size: 13px; cursor: pointer; }
+  .follow-tip { padding: 14px 24px; background: rgba(201,169,97,0.12); border-left: 3px solid var(--brass); margin: 0 24px; border-radius: 0 12px 12px 0; font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.85); }
+  .follow-tip strong { color: var(--brass); }
+
+  /* CREATE ROUTE */
+  #createRoute { background: var(--parchment); z-index: 140; transform: translateY(100%); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 320ms; }
+  #createRoute.active { transform: translateY(0); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 0s; }
+  .cr-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 4px; }
+  .cr-cancel, .cr-save { background: none; border: 0; font: inherit; font-size: 15px; padding: 8px; cursor: pointer; }
+  .cr-cancel { color: var(--muted); }
+  .cr-save { color: var(--brass-deep); font-weight: 700; }
+  .cr-save:disabled { color: var(--line); }
+  .cr-title { padding: 8px 24px 18px; }
+  .form-field { margin: 0 24px 14px; }
+  .form-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; display: block; }
+  .form-input { width: 100%; background: white; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; font: inherit; font-size: 15px; color: var(--ink); }
+  .form-input:focus { outline: 0; border-color: var(--brass); }
+  textarea.form-input { resize: none; min-height: 70px; line-height: 1.4; }
+  .stops-section { padding: 16px 24px 8px; display: flex; justify-content: space-between; align-items: center; }
+  .stops-list { padding: 0 16px; }
+  .stop-row { display: flex; align-items: center; gap: 12px; background: white; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 10px 8px; margin-bottom: 8px; }
+  .stop-handle { color: var(--muted); cursor: grab; padding: 4px; }
+  .stop-row .nearby-info { flex: 1; }
+  .stop-remove { background: transparent; border: 0; padding: 6px; cursor: pointer; color: var(--muted); }
+  .add-stop-btn { width: calc(100% - 32px); margin: 8px 16px; background: white; border: 1px dashed var(--line); border-radius: 14px; padding: 16px; font: inherit; font-size: 14px; font-weight: 600; color: var(--brass-deep); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+  /* VOICE NOTES */
+  .note-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 0 76px; padding: 8px 12px; background: rgba(201,169,97,0.10); border-left: 3px solid var(--brass); border-radius: 0 12px 12px 0; cursor: pointer; }
+  .note-row:active { background: rgba(201,169,97,0.18); }
+  .note-mic { width: 28px; height: 28px; border-radius: 50%; background: var(--brass); color: var(--navy); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .note-mic svg { width: 14px; height: 14px; }
+  .note-info { flex: 1; min-width: 0; }
+  .note-author { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--brass-deep); }
+  .note-preview { font-size: 13px; color: var(--ink); margin-top: 1px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .note-duration { font-size: 11px; color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .note-add { display: flex; align-items: center; gap: 8px; margin: 6px 0 0 76px; padding: 8px 12px; background: transparent; border: 1px dashed var(--line); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; color: var(--brass-deep); font-weight: 600; }
+  .note-add svg { width: 14px; height: 14px; }
+  .note-playing { background: rgba(201,169,97,0.25) !important; }
+
+  /* NOTE EDITOR */
+  #noteEditor { background: var(--parchment); z-index: 130; transform: translateY(100%); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 320ms; }
+  #noteEditor.active { transform: translateY(0); transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 220ms ease, visibility 0s linear 0s; }
+  .ne-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 4px; flex-shrink: 0; }
+  .ne-cancel, .ne-save { background: none; border: 0; font: inherit; font-size: 15px; padding: 8px; cursor: pointer; }
+  .ne-cancel { color: var(--muted); }
+  .ne-save { color: var(--brass-deep); font-weight: 700; }
+  .ne-save:disabled { color: var(--line); }
+  .ne-title { padding: 8px 24px 4px; }
+  .ne-place-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: white; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--ink); margin: 6px 24px 18px; }
+  .ne-place-pill .thumb.sm { width: 22px; height: 22px; border-radius: 6px; }
+  .ne-tabs { display: flex; gap: 0; padding: 0 24px 18px; border-bottom: 1px solid var(--line); margin: 0 0 12px; }
+  .ne-tab { background: none; border: 0; padding: 10px 0; margin-right: 28px; font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  .ne-tab.active { color: var(--navy); border-bottom-color: var(--brass); }
+  .ne-pane { padding: 0 24px; }
+  .ne-pane.hidden { display: none; }
+  .ne-textarea { width: 100%; min-height: 140px; padding: 14px 16px; background: white; border: 1px solid var(--line); border-radius: 14px; font: inherit; font-size: 16px; line-height: 1.5; color: var(--ink); resize: none; }
+  .ne-textarea:focus { outline: 0; border-color: var(--brass); }
+  .ne-help { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+  .ne-record-stage { padding: 30px 24px; text-align: center; }
+  .ne-record-btn { width: 96px; height: 96px; border-radius: 50%; background: var(--warm); color: white; border: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 12px 30px rgba(185,89,52,0.35); transition: transform 120ms ease; }
+  .ne-record-btn svg { width: 36px; height: 36px; }
+  .ne-record-btn.recording { background: var(--navy); animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  .ne-record-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .ne-record-status { margin-top: 18px; font-size: 14px; color: var(--muted); }
+  .ne-record-time { font-family: "Cormorant Garamond", Georgia, serif; font-size: 32px; font-weight: 600; color: var(--navy); margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .ne-record-preview { margin-top: 20px; }
+  .ne-record-preview audio { width: 100%; }
+  .ne-redo { background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; padding: 8px; margin-top: 6px; text-decoration: underline; }
+  .ne-author-field { padding: 14px 24px 0; }
+
+  /* GPS toggle in picker */
+  .gps-card { margin: 0 16px 12px; padding: 14px 16px; background: white; border: 1px solid var(--line); border-radius: 14px; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .gps-card .gps-icon { width: 40px; height: 40px; border-radius: 50%; background: rgba(15,27,45,0.08); display: flex; align-items: center; justify-content: center; color: var(--navy); flex-shrink: 0; }
+  .gps-card .gps-info { flex: 1; min-width: 0; }
+  .gps-card .gps-title { font-size: 14px; font-weight: 700; color: var(--navy); }
+  .gps-card .gps-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+  /* AUTH MODAL */
+  .auth-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .auth-overlay.active { display: flex; }
+  .auth-card { background: var(--parchment); border-radius: 22px; padding: 28px 24px 24px; width: 100%; max-width: 360px; animation: pop 280ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .auth-card h2 { text-align: center; margin-bottom: 6px; font-size: 24px; }
+  .auth-card .lead { text-align: center; font-size: 13px; color: var(--muted); margin: 6px 0 18px; }
+  .auth-card .form-input { margin-bottom: 12px; text-align: left; }
+  .auth-card input.code { text-align: center; font-size: 22px; letter-spacing: 0.4em; font-family: -apple-system, monospace; padding: 16px; }
+  .auth-btn { width: 100%; background: var(--brass); color: var(--navy); border: 0; padding: 14px; border-radius: 14px; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .auth-btn:disabled { opacity: 0.5; }
+  .auth-secondary { width: 100%; background: transparent; border: 0; padding: 12px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; margin-top: 4px; }
+  .auth-status { font-size: 13px; text-align: center; padding: 6px 0; color: var(--good); min-height: 20px; }
+  .auth-status.error { color: var(--warm); }
+  .auth-signedin { padding: 8px 0; text-align: center; }
+  .auth-signedin .avatar-big { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, var(--brass), var(--warm)); color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; margin: 0 auto 12px; font-family: "Cormorant Garamond", Georgia, serif; }
+  .auth-email { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .auth-detail { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+
+  /* Voice picker in auth modal */
+  .voice-picker { padding: 14px 0 4px; border-top: 1px solid var(--line); margin-top: 14px; }
+  .voice-picker-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  .voice-options { display: flex; flex-direction: column; gap: 6px; }
+  .voice-option { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: white; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+  .voice-option:active { background: var(--parchment-2); }
+  .voice-option.selected { border-color: var(--brass); background: rgba(201,169,97,0.08); }
+  .voice-option .v-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .voice-option.selected .v-radio { border-color: var(--brass); }
+  .voice-option.selected .v-radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--brass); }
+  .voice-option .v-info { flex: 1; min-width: 0; text-align: left; }
+  .voice-option .v-name { font-weight: 700; font-size: 14px; color: var(--ink); }
+  .voice-option .v-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .voice-option .v-note { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--brass-deep); }
+  .voice-picker-help { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+
+  /* Sign-in chip in home header */
+  .auth-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px 5px 5px; background: rgba(15,27,45,0.06); border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-weight: 700; color: var(--ink); cursor: pointer; white-space: nowrap; flex-shrink: 0; font-family: inherit; }
+  .auth-chip:active { background: rgba(15,27,45,0.12); }
+  .auth-chip .avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--brass), var(--warm)); color: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: "Cormorant Garamond", Georgia, serif; }
+  .auth-chip.anon .avatar { background: var(--muted); }
+  .auth-chip .label { letter-spacing: 0.05em; text-transform: uppercase; }
+
+  /* Cloud sync indicator */
+  .sync-pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 4px; vertical-align: middle; animation: syncpulse 1.6s infinite; }
+  @keyframes syncpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* SHARE MODAL */
+  .share-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .share-overlay.active { display: flex; }
+  .share-card { background: var(--parchment); border-radius: 22px; padding: 24px; width: 100%; max-width: 360px; animation: pop 280ms cubic-bezier(0.32, 0.72, 0, 1); }
+  @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .share-card h2 { text-align: center; margin-bottom: 6px; }
+  .share-card p.muted { text-align: center; }
+  .qr-wrap { display: flex; justify-content: center; padding: 18px 0 12px; }
+  .qr-wrap img { width: 180px; height: 180px; border-radius: 12px; }
+  .share-link { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; margin: 12px 0; font-size: 13px; }
+  .share-link span { color: var(--ink); font-weight: 600; }
+  .share-link button { background: var(--navy); color: var(--parchment); border: 0; padding: 6px 12px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; }
+  .share-channels { display: flex; gap: 10px; margin: 14px 0 8px; }
+  .share-channel { flex: 1; background: white; border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; cursor: pointer; font-size: 11px; font-weight: 600; color: var(--navy); }
+  .share-channel-icon { font-size: 22px; margin-bottom: 4px; display: block; }
+  .share-close { width: 100%; background: transparent; border: 0; padding: 12px; font: inherit; font-size: 14px; color: var(--muted); cursor: pointer; margin-top: 4px; }
+
+  /* ADD-STOP PICKER (reuses demo-picker pattern) */
+  .picker-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); z-index: 150; display: none; align-items: flex-end; }
+  .picker-overlay.active { display: flex; }
+  .picker { width: 100%; background: var(--parchment); border-radius: 28px 28px 0 0; max-height: 75%; overflow-y: auto; padding: 8px 0 28px; animation: slideUp 280ms cubic-bezier(0.32, 0.72, 0, 1); }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .picker-handle { width: 36px; height: 4px; background: var(--line); border-radius: 2px; margin: 8px auto 14px; }
+  .picker-title { padding: 0 24px 8px; }
+  .picker-list .nearby-item { margin: 0 8px; }
+  .picker-filters { display: flex; gap: 8px; padding: 6px 16px 12px; overflow-x: auto; }
+  .picker-filter { background: white; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .picker-filter.active { background: var(--navy); color: var(--parchment); border-color: var(--navy); }
+
+  /* COMPLETION */
+  .celebrate { padding: 60px 32px; text-align: center; color: var(--parchment); }
+  .celebrate-emoji { font-size: 64px; margin-bottom: 20px; }
+  .celebrate h1 { color: var(--parchment); font-size: 38px; margin-bottom: 12px; }
+  .celebrate p { font-size: 16px; opacity: 0.8; line-height: 1.5; margin-bottom: 32px; }
+  .celebrate-share { background: var(--brass); color: var(--navy); border: 0; padding: 16px 28px; border-radius: 14px; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+
+  /* ONBOARDING */
+  #onboarding { background: var(--navy); color: var(--parchment); z-index: 220; transition: opacity 320ms ease; }
+  #onboarding .view-body { padding: 80px 36px 40px; display: flex; flex-direction: column; }
+  #onboarding h1 { color: var(--parchment); font-size: 44px; margin-bottom: 16px; }
+  #onboarding .lead { font-size: 17px; line-height: 1.55; opacity: 0.85; margin-bottom: 36px; }
+  .onb-step { display: flex; gap: 16px; align-items: flex-start; padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.1); }
+  .onb-step:first-of-type { border-top: 0; }
+  .onb-num { width: 32px; height: 32px; border-radius: 50%; background: var(--brass); color: var(--navy); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+  .onb-text h3 { color: var(--parchment); font-size: 18px; margin-bottom: 4px; }
+  .onb-text p { font-size: 14px; line-height: 1.5; opacity: 0.8; margin: 0; }
+  .onb-btn { margin-top: auto; background: var(--brass); color: var(--navy); border: 0; padding: 18px; border-radius: 18px; font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; }
+
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--parchment); animation: spin 700ms linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast { position: absolute; top: 60px; left: 50%; transform: translateX(-50%) translateY(-20px); background: rgba(15,27,45,0.96); color: var(--parchment); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; opacity: 0; transition: all 240ms ease; pointer-events: none; z-index: 250; backdrop-filter: blur(10px); white-space: nowrap; max-width: 90%; overflow: hidden; text-overflow: ellipsis; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="frame">
+  <!-- HOME -->
+  <div class="view active" id="home">
+    <div class="status-bar"><span>9:41</span><span>Lore</span></div>
+    <div class="view-body">
+      <div class="home-header" style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="eyebrow">Good morning</div>
+          <h1 style="margin-top:6px">What's around you?</h1>
+        </div>
+        <button class="auth-chip anon" id="authChip" aria-label="Sign in">
+          <span class="avatar" id="authChipAvatar">?</span>
+          <span class="label" id="authChipLabel">Sign in</span>
+        </button>
+      </div>
+      <div class="location-card">
+        <div class="demo-pill" id="demoPill">Demo · Tap to change</div>
+        <div class="loc-row">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 21s-7-7.5-7-12a7 7 0 0114 0c0 4.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          You're near
+        </div>
+        <div class="loc-name" id="locName">Eiffel Tower</div>
+        <div class="loc-sub" id="locSub">Champ de Mars · Paris, France</div>
+      </div>
+      <button class="tap-btn" id="tapBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 8l7 4-7 4V8z" fill="currentColor"/></svg>
+        Tell me about this place
+      </button>
+      <div class="nearby-title">
+        <div class="eyebrow">Also nearby</div>
+        <span class="muted" style="font-size:12px">within 1.5 km</span>
+      </div>
+      <div class="nearby-list" id="nearbyList"></div>
+    </div>
+  </div>
+
+  <!-- ROUTES -->
+  <div class="view" id="routes">
+    <div class="status-bar"><span>9:41</span><span>Lore</span></div>
+    <div class="view-body">
+      <div class="routes-header">
+        <div>
+          <div class="eyebrow">Curated paths</div>
+          <h1 style="margin-top:6px">Routes</h1>
+        </div>
+        <button class="new-route-btn" id="newRouteBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          New
+        </button>
+      </div>
+      <div class="section-title" id="yourRoutesTitle">Your routes</div>
+      <div class="route-list" id="yourRoutesList"></div>
+      <div class="section-title">Shared with you</div>
+      <div class="route-list" id="sharedRoutesList"></div>
+      <div class="section-title">Discover</div>
+      <div class="route-list" id="discoverRoutesList"></div>
+    </div>
+  </div>
+
+  <!-- JOURNAL -->
+  <div class="view" id="journal">
+    <div class="status-bar"><span>9:41</span><span>Lore</span></div>
+    <div class="view-body">
+      <div class="journal-header">
+        <div class="eyebrow">Your collection</div>
+        <h1 style="margin-top:6px">Trip journal</h1>
+        <p class="muted" style="margin-top:8px">Every place you've explored, saved automatically.</p>
+      </div>
+      <div id="tripList"></div>
+    </div>
+  </div>
+
+  <!-- STORE -->
+  <div class="view" id="store">
+    <div class="status-bar"><span>9:41</span><span>Lore</span></div>
+    <div class="view-body">
+      <div class="home-header">
+        <div class="eyebrow">★ Premium tours</div>
+        <h1 style="margin-top:6px">Curated audio guides</h1>
+        <p class="muted" style="margin-top:8px">Studio-recorded narration. Built with museums, historians and local guides.</p>
+      </div>
+      <div style="margin: 8px 16px 20px; padding: 22px; border-radius: 22px; color: white; background: linear-gradient(135deg, #5b3a1a, #2c1810); position: relative; overflow: hidden;">
+        <div style="position: absolute; right: -30px; bottom: -30px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(201,169,97,0.3), transparent 60%);"></div>
+        <h2 style="color:white;margin-bottom:6px">Lore Unlimited</h2>
+        <p style="font-size:13px;opacity:0.9;margin:0 0 14px;line-height:1.5">Every premium tour, narrated by professional voices. Cancel anytime.</p>
+        <button style="background: var(--brass); color: var(--navy); border: 0; padding: 10px 18px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;">Try free for 14 days · then £7.99/mo</button>
+      </div>
+      <div class="eyebrow" style="padding:0 24px 12px">Featured this week</div>
+      <div style="padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;" id="tourGrid"></div>
+      <div style="height:24px"></div>
+    </div>
+  </div>
+
+  <!-- EXPLAINER -->
+  <div class="view" id="explainer">
+    <div class="explainer-hero" id="explainerHero">
+      <button class="round-btn explainer-back" id="closeExplainer" aria-label="Close">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F1B2D" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M6 18L18 6"/></svg>
+      </button>
+      <div class="explainer-actions">
+        <button class="round-btn" id="addToRouteBtn" aria-label="Add to route" title="Add to route">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F1B2D" stroke-width="2" stroke-linecap="round"><path d="M3 5h13M3 12h9M3 19h13"/><path d="M19 8v8M15 12h8"/></svg>
+        </button>
+        <button class="round-btn" id="shareBtn" aria-label="Share">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F1B2D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7M16 6l-4-4-4 4M12 2v14"/></svg>
+        </button>
+      </div>
+      <div class="explainer-title-wrap">
+        <div class="explainer-place" id="explainerName"></div>
+        <div class="explainer-loc" id="explainerLoc"></div>
+      </div>
+    </div>
+    <div class="explainer-body">
+      <div class="pill-row">
+        <span class="saved-pill">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Saved to journal
+        </span>
+        <button class="add-route-pill" id="addToRouteInline">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          Add to route
+        </button>
+      </div>
+      <div class="transcript" id="transcript"></div>
+      <div class="citations" id="citations"></div>
+      <div style="height:120px"></div>
+    </div>
+    <div class="audio-bar">
+      <button class="play-btn" id="playBtn" aria-label="Play">
+        <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z"/></svg>
+      </button>
+      <div class="audio-meta">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:13px;font-weight:600" id="nowPlayingName">—</span>
+          <span class="audio-time" id="audioTime">0:00</span>
+        </div>
+        <div class="audio-progress"><div class="audio-progress-fill" id="progressFill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROUTE DETAIL -->
+  <div class="view" id="routeDetail">
+    <div class="rd-hero" id="rdHero">
+      <button class="round-btn rd-back" id="rdBack"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F1B2D" stroke-width="2.4" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <button class="round-btn rd-share" id="rdShare"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F1B2D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7M16 6l-4-4-4 4M12 2v14"/></svg></button>
+      <div class="rd-titleblock">
+        <div class="rd-author-line" id="rdAuthor"></div>
+        <div class="rd-name" id="rdName"></div>
+        <div class="rd-loc" id="rdLoc"></div>
+      </div>
+    </div>
+    <div class="rd-body" id="rdBody"></div>
+    <button class="start-route-btn" id="startRouteBtn">Start route</button>
+  </div>
+
+  <!-- FOLLOWING MODE -->
+  <div class="view" id="following">
+    <div class="follow-header">
+      <div class="follow-progress-text" id="followProgressText">Stop 1 of 3</div>
+      <button class="follow-exit" id="followExit">Exit</button>
+    </div>
+    <div class="follow-progress-bar"><div class="follow-progress-fill" id="followProgressFill"></div></div>
+    <div class="follow-route-name" id="followRouteName"></div>
+    <div class="follow-stop-name" id="followStopName"></div>
+    <div class="follow-image" id="followImage"></div>
+    <div class="follow-tip"><strong>Walking directions: </strong><span id="followDirections"></span></div>
+    <div class="follow-actions">
+      <button class="follow-listen" id="followListen">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 8l7 4-7 4V8z" fill="currentColor"/></svg>
+        Listen now
+      </button>
+      <button class="follow-next" id="followNext">I'm here · next stop →</button>
+      <button class="follow-skip" id="followSkip">Skip stop</button>
+    </div>
+  </div>
+
+  <!-- COMPLETION -->
+  <div class="view" id="complete" style="background: var(--navy);">
+    <div class="celebrate">
+      <div class="celebrate-emoji">🎉</div>
+      <h1>Route complete</h1>
+      <p id="completeMessage">All stops explored. The whole route is saved to your journal.</p>
+      <button class="celebrate-share" id="completeShare">Share this trip</button>
+      <div style="margin-top:18px"><button class="follow-skip" id="completeDone" style="color: rgba(255,255,255,0.6)">Done</button></div>
+    </div>
+  </div>
+
+  <!-- CREATE ROUTE -->
+  <div class="view" id="createRoute">
+    <div class="status-bar"><span>9:41</span><span>Lore</span></div>
+    <div class="cr-header">
+      <button class="cr-cancel" id="crCancel">Cancel</button>
+      <span style="font-size:14px;font-weight:700">New route</span>
+      <button class="cr-save" id="crSave" disabled>Save</button>
+    </div>
+    <div class="view-body" style="padding-bottom:40px">
+      <div class="cr-title">
+        <h1>Build a route</h1>
+        <p class="muted" style="margin-top:6px">Drop the stops in order. Share the route with anyone — no account needed to follow it.</p>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Route name</label>
+        <input class="form-input" id="crName" placeholder="e.g. Paris in a weekend">
+      </div>
+      <div class="form-field">
+        <label class="form-label">A short description (optional)</label>
+        <textarea class="form-input" id="crDesc" placeholder="What makes this route special? Where to start, what not to skip…"></textarea>
+      </div>
+      <div class="stops-section">
+        <span class="form-label" style="margin:0">Stops</span>
+        <span class="muted" style="font-size:12px" id="crStopCount">0 stops</span>
+      </div>
+      <div class="stops-list" id="crStopsList"></div>
+      <button class="add-stop-btn" id="crAddStop">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Add a stop
+      </button>
+    </div>
+  </div>
+
+  <!-- ONBOARDING -->
+  <div class="view active" id="onboarding">
+    <div class="status-bar dark"><span>9:41</span><span style="color:var(--brass)">Lore</span></div>
+    <div class="view-body">
+      <div class="eyebrow" style="color:var(--brass)">A pocket audio guide</div>
+      <h1>The world has stories. <span style="color:var(--brass)">Tap to hear them.</span></h1>
+      <p class="lead">Stand near any monument, building or landmark. One tap and Lore tells you what you're looking at — and saves the story to your journal forever.</p>
+      <div class="onb-step"><div class="onb-num">1</div><div class="onb-text"><h3>Find</h3><p>Your phone knows where you are. Lore finds the interesting things nearby.</p></div></div>
+      <div class="onb-step"><div class="onb-num">2</div><div class="onb-text"><h3>Listen</h3><p>A natural voice reads you a thoughtful, accurate explainer — sourced live, fact-checked.</p></div></div>
+      <div class="onb-step"><div class="onb-num">3</div><div class="onb-text"><h3>Walk together</h3><p>Build a route, share it with a friend. They follow the same path you walked.</p></div></div>
+      <button class="onb-btn" id="startBtn">Start exploring</button>
+    </div>
+  </div>
+
+  <!-- TABBAR -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tab active" data-view="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="3"/><path d="M12 21s-7-7.5-7-12a7 7 0 0114 0c0 4.5-7 12-7 12z"/></svg>
+      Discover
+    </button>
+    <button class="tab" data-view="routes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><circle cx="14" cy="9" r="1.6"/><path d="M6 8.2C6 12 12 12 12 16c0 1.1 1 2 2 2"/></svg>
+      Routes
+    </button>
+    <button class="tab" data-view="journal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12a4 4 0 014 4v12H8a4 4 0 01-4-4V4z"/><path d="M4 4v12a4 4 0 004 4"/></svg>
+      Journal
+    </button>
+    <button class="tab" data-view="store">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M3 9h18"/><path d="M9 13a3 3 0 006 0"/></svg>
+      Store
+    </button>
+  </nav>
+
+  <!-- DEMO LOCATION PICKER (also reused for "add stop") -->
+  <div class="picker-overlay" id="pickerOverlay">
+    <div class="picker">
+      <div class="picker-handle"></div>
+      <div class="picker-title">
+        <div class="eyebrow" id="pickerEyebrow">Demo mode</div>
+        <h2 id="pickerTitle" style="margin-top:4px">Pretend you're here</h2>
+        <p class="muted" id="pickerSubtitle" style="margin-top:6px;font-size:13px">Pick a famous place to simulate standing in front of it.</p>
+      </div>
+      <div class="picker-filters" id="pickerFilters"></div>
+      <div class="picker-list nearby-list" id="pickerList"></div>
+    </div>
+  </div>
+
+  <!-- "ADD TO EXISTING ROUTE OR NEW" PICKER -->
+  <div class="picker-overlay" id="routePicker">
+    <div class="picker">
+      <div class="picker-handle"></div>
+      <div class="picker-title">
+        <div class="eyebrow">Add this place to…</div>
+        <h2 id="routePickerTitle" style="margin-top:4px">Pick a route</h2>
+      </div>
+      <div class="picker-list" id="routePickerList" style="padding: 0 8px"></div>
+      <div style="padding: 12px 24px 0">
+        <button class="add-stop-btn" style="margin:0;width:100%" id="routePickerNew">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          Create a new route
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTE EDITOR -->
+  <div class="view" id="noteEditor">
+    <div class="status-bar"><span>9:41</span><span>Lore</span></div>
+    <div class="ne-header">
+      <button class="ne-cancel" id="neCancel">Cancel</button>
+      <span style="font-size:14px;font-weight:700">Voice note</span>
+      <button class="ne-save" id="neSave" disabled>Save</button>
+    </div>
+    <div class="view-body" style="padding-bottom:40px">
+      <div class="ne-title">
+        <h1>Leave a note</h1>
+        <p class="muted" style="margin-top:6px">Whoever follows this route will hear your note after the explainer.</p>
+      </div>
+      <div class="ne-place-pill" id="nePlacePill"></div>
+      <div class="ne-tabs">
+        <button class="ne-tab active" data-pane="type">Type a note</button>
+        <button class="ne-tab" data-pane="record">Record voice</button>
+      </div>
+      <div class="ne-pane" id="paneType">
+        <textarea class="ne-textarea" id="neText" placeholder="What do you want them to know about this place? Keep it personal — what only you would say."></textarea>
+        <div class="ne-help">A friendly voice will read this when they get here. Maximum about 100 words.</div>
+      </div>
+      <div class="ne-pane hidden" id="paneRecord">
+        <div class="ne-record-stage">
+          <button class="ne-record-btn" id="neRecordBtn" aria-label="Record">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a1 1 0 00-2 0 9 9 0 008 8.94V22h2v-2.06A9 9 0 0021 11a1 1 0 00-2 0 7 7 0 11-14 0z"/></svg>
+          </button>
+          <div class="ne-record-status" id="neRecordStatus">Tap to record · max 90 seconds</div>
+          <div class="ne-record-time" id="neRecordTime">0:00</div>
+          <div class="ne-record-preview" id="neRecordPreview"></div>
+        </div>
+      </div>
+      <div class="ne-author-field">
+        <label class="form-label">Signed</label>
+        <input class="form-input" id="neAuthor" value="You" placeholder="Your name as they'll see it">
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTH MODAL -->
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div id="authStateAnon">
+        <h2>Sign in to Lore</h2>
+        <p class="lead">Save your trip to the cloud so it's safe even if you change phones. We'll email you a six-digit code — no password.</p>
+        <input class="form-input" type="email" id="authEmail" placeholder="you@example.com" autocomplete="email" inputmode="email">
+        <button class="auth-btn" id="authSendBtn">Send code</button>
+        <div class="auth-status" id="authStatus"></div>
+        <button class="auth-secondary" id="authClose">Maybe later</button>
+      </div>
+      <div id="authStateCode" style="display:none">
+        <h2>Check your email</h2>
+        <p class="lead" id="authCodeLead">We sent a sign-in code to <span id="authCodeEmail"></span>. Type it below — it's a few digits long.</p>
+        <input class="form-input code" type="text" id="authCode" placeholder="00000000" inputmode="numeric" maxlength="10" autocomplete="one-time-code">
+        <button class="auth-btn" id="authVerifyBtn">Verify</button>
+        <div class="auth-status" id="authVerifyStatus"></div>
+        <button class="auth-secondary" id="authBackBtn">Use a different email</button>
+      </div>
+      <div id="authStateSignedIn" style="display:none">
+        <div class="auth-signedin">
+          <div class="avatar-big" id="authAvatarBig">?</div>
+          <div class="auth-email" id="authSignedInEmail"></div>
+          <div class="auth-detail" id="authSignedInDetail">Your trip syncs to the cloud automatically.</div>
+        </div>
+        <div class="voice-picker">
+          <div class="voice-picker-label">Narrator voice</div>
+          <div class="voice-options" id="voiceOptions"></div>
+          <div class="voice-picker-help">Plays when premium audio is available. Save and skip stops to hear different voices.</div>
+        </div>
+        <button class="auth-secondary" id="authSignOutBtn" style="color:var(--warm)">Sign out</button>
+        <button class="auth-secondary" id="authSignedInClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHARE MODAL -->
+  <div class="share-overlay" id="shareOverlay">
+    <div class="share-card">
+      <div class="eyebrow" style="text-align:center;color:var(--muted)">Share</div>
+      <h2 id="shareTitle">Share this route</h2>
+      <p class="muted" style="font-size:13px;margin-top:4px" id="shareSubtitle">Send it to anyone. They don't need an account to follow it.</p>
+      <div class="qr-wrap"><div id="shareQR"></div></div>
+      <div class="share-link">
+        <span id="shareUrl">lore.app/r/abc123</span>
+        <button id="copyLinkBtn">Copy</button>
+      </div>
+      <div class="share-channels">
+        <div class="share-channel" data-ch="Messages"><span class="share-channel-icon">💬</span>Messages</div>
+        <div class="share-channel" data-ch="WhatsApp"><span class="share-channel-icon">📱</span>WhatsApp</div>
+        <div class="share-channel" data-ch="Email"><span class="share-channel-icon">✉️</span>Email</div>
+      </div>
+      <button class="share-close" id="shareClose">Close</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+// ============================================================
+// LANDMARK DATA
+// ============================================================
+const LANDMARKS = [
+  // ---------- PARIS ----------
+  {
+    id: "eiffel", name: "Eiffel Tower", location: "Champ de Mars · Paris, France",
+    city: "Paris", country: "France", lat: 48.8584, lng: 2.2945,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg/640px-Tour_Eiffel_Wikimedia_Commons.jpg",
+    transcript: [
+      "Welcome to the Eiffel Tower. You're looking at one of the most photographed structures on the planet — but here's something most people don't know. When Gustave Eiffel unveiled it for the 1889 World's Fair, Parisians hated it.",
+      "A petition signed by three hundred of the city's leading artists and writers — including Maupassant and Dumas — called it a useless and monstrous tower, a tragic street lamp that would disgrace the skyline. The plan was to tear it down after just twenty years.",
+      "What saved it? Radio. The French military realised the tower made the perfect antenna. By the First World War, signals from its summit were intercepting German communications, and suddenly the tragic street lamp was a national treasure.",
+      "It stands three hundred and thirty metres tall. On a hot day, it grows about fifteen centimetres taller as the iron expands in the sun. Eighteen thousand individual iron pieces, two and a half million rivets, and seven million people who climb it every year. You're looking at the most visited paid monument in the world."
+    ],
+    sources: ["Wikipedia: Eiffel Tower", "Wikipedia: 1889 Exposition Universelle", "Société d'Exploitation de la Tour Eiffel — official history"]
+  },
+  {
+    id: "louvre", name: "Louvre Museum", location: "Rue de Rivoli · Paris, France",
+    city: "Paris", country: "France", lat: 48.8606, lng: 2.3376,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Louvre_Museum_Wikimedia_Commons.jpg/640px-Louvre_Museum_Wikimedia_Commons.jpg",
+    transcript: [
+      "You're standing in front of the most visited museum in the world. The Louvre takes ten million visitors a year through nearly four hundred rooms — and most of them come to see one painting. The Mona Lisa, in a climate-controlled glass case, gets about thirty thousand visitors every single day, who get an average of fifteen seconds to look at her.",
+      "But the Louvre wasn't built as a museum. It started in the twelfth century as a fortress to defend Paris from Vikings. It became a royal palace under Charles V, the home of the French monarchy for centuries, and only opened as a public museum after the Revolution in 1793 — when the people threw out the king and declared his art belonged to everyone.",
+      "The glass pyramid in the courtyard is much younger than people think. It was added in 1989 by the Chinese-American architect I. M. Pei, and Parisians once again hated it — they called it a pharaonic absurdity. Now it's iconic.",
+      "The Louvre has thirty-five thousand objects on display. Walk through it at full speed, eight hours a day, and you'd need three months to see them all."
+    ],
+    sources: ["Wikipedia: Louvre", "Musée du Louvre — official history"]
+  },
+  {
+    id: "notredame", name: "Notre-Dame de Paris", location: "Île de la Cité · Paris, France",
+    city: "Paris", country: "France", lat: 48.8530, lng: 2.3499,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Notre_Dame_de_Paris_DSC_0846w.jpg/640px-Notre_Dame_de_Paris_DSC_0846w.jpg",
+    transcript: [
+      "This is Notre-Dame de Paris, almost nine hundred years old. The cathedral you see is partly a survivor and partly a resurrection. On the fifteenth of April, 2019, a fire broke out in the attic during renovation work. The wooden roof — a forest of oak beams cut from twenty-one hectares of medieval woodland — burned for fifteen hours. The famous spire collapsed. Live television showed Parisians weeping in the streets.",
+      "But the stone vaulting underneath did its job. It held the worst of the fire away from the nave below. The two great rose windows, the relics, the bells, the iconic west façade with its twin towers — all survived. Within hours, nearly a billion euros had been pledged for the rebuild.",
+      "Five years later, in late 2024, Notre-Dame reopened. Two thousand craftspeople — stonemasons, oak carpenters working with medieval tools, glaziers, sculptors — restored it stone by stone. The new spire is an exact replica of the one Viollet-le-Duc designed in the 1860s.",
+      "Look up. The ceiling glows because the limestone was scrubbed back to the colour it had in the thirteenth century. We hadn't seen it that bright in eight hundred years."
+    ],
+    sources: ["Wikipedia: Notre-Dame de Paris", "French Ministry of Culture — Notre-Dame restoration"]
+  },
+  // ---------- ROME ----------
+  {
+    id: "colosseum", name: "Colosseum", location: "Piazza del Colosseo · Rome, Italy",
+    city: "Rome", country: "Italy", lat: 41.8902, lng: 12.4922,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseo_2020.jpg/640px-Colosseo_2020.jpg",
+    transcript: [
+      "You're standing at the edge of the largest amphitheatre ever built. The Colosseum was opened in the year eighty AD with a hundred days of games. Five thousand animals were killed in the inaugural festival alone.",
+      "It seated fifty thousand people, sorted into seats by social rank — senators at the front, women and the poor up top. Crowds flowed in and out through eighty numbered entrances using the world's first ticketing system. Modern stadiums still use the same basic design.",
+      "Beneath the floor was a labyrinth called the hypogeum. Animals and gladiators waited in cells, then rose into the arena on a system of trapdoors and counterweighted lifts. The Romans could even flood the entire floor to stage mock naval battles.",
+      "Look at the missing chunks of the outer wall. That damage isn't from gladiators. It's from earthquakes, but mostly it's from the popes. For centuries the Colosseum was treated as a quarry — its stones were stripped to build St Peter's Basilica, the Palazzo Venezia, and dozens of Roman churches. About two thirds of the original stone is gone."
+    ],
+    sources: ["Wikipedia: Colosseum", "Mary Beard, SPQR", "Parco Archeologico del Colosseo"]
+  },
+  {
+    id: "pantheon", name: "Pantheon", location: "Piazza della Rotonda · Rome, Italy",
+    city: "Rome", country: "Italy", lat: 41.8986, lng: 12.4769,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Pantheon_in_Rome.jpg/640px-Pantheon_in_Rome.jpg",
+    transcript: [
+      "This is the Pantheon. It has been standing here, used continuously, for nineteen hundred years. The Roman emperor Hadrian commissioned it around 125 AD. It's the best-preserved Roman building on Earth, mostly because it was never abandoned — it became a Christian church in the seventh century and has been one ever since.",
+      "Look up. That dome is one of the most extraordinary feats in architecture. It's made of unreinforced concrete and it's still — nineteen centuries later — the largest unreinforced concrete dome ever built. The Romans understood something modern engineers had to relearn: as the dome rises, the material gets lighter. The lower walls use heavy travertine. Higher up, brick. Near the top, pumice. The whole thing is in perfect equilibrium.",
+      "The hole at the centre — the oculus — is nine metres across and completely open to the sky. When it rains, it rains inside. The floor is gently sloped to drain. On a sunny day, a beam of light moves slowly across the interior like a sundial.",
+      "Twice a year, on April twenty-first — Rome's birthday — the noon sunbeam aligns perfectly with the front entrance, lighting up the courtyard outside."
+    ],
+    sources: ["Wikipedia: Pantheon, Rome", "Mary Beard, SPQR"]
+  },
+  {
+    id: "trevi", name: "Trevi Fountain", location: "Piazza di Trevi · Rome, Italy",
+    city: "Rome", country: "Italy", lat: 41.9009, lng: 12.4833,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Trevi_Fountain%2C_Rome%2C_Italy_2_-_May_2007.jpg/640px-Trevi_Fountain%2C_Rome%2C_Italy_2_-_May_2007.jpg",
+    transcript: [
+      "The Trevi Fountain is the largest Baroque fountain in Rome. The water still runs through an aqueduct built in nineteen BC. The original Aqua Virgo brought water from a spring eleven miles outside the city, and tradition says it was discovered by a young Roman virgin who showed thirsty soldiers where to dig. The fountain was finished in 1762 — three centuries ago — to mark the end of the aqueduct's journey.",
+      "The central figure is Oceanus, god of all waters, riding a chariot pulled by two seahorses. One horse is calm, one is wild — representing the moods of the sea. Around him are allegorical statues of Health and Abundance. The whole composition is carved out of travertine quarried just east of the city.",
+      "About three thousand euros are thrown into the fountain every single day. Tradition says one coin tossed over your left shoulder guarantees you'll return to Rome, two coins finds you Roman love, three coins ends in marriage. The money is collected nightly by the city council and donated to the Catholic charity Caritas, which uses it to fund a supermarket for Rome's homeless."
+    ],
+    sources: ["Wikipedia: Trevi Fountain", "Comune di Roma"]
+  },
+  {
+    id: "vatican", name: "St Peter's Basilica", location: "Vatican City",
+    city: "Rome", country: "Italy", lat: 41.9022, lng: 12.4533,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/0_Bas%C3%ADlica_de_San_Pedro_-_Ciudad_del_Vaticano.JPG/640px-0_Bas%C3%ADlica_de_San_Pedro_-_Ciudad_del_Vaticano.JPG",
+    transcript: [
+      "You're at the centre of the Catholic Church, in the smallest country in the world. Vatican City is just over a hundred acres — about half the size of London's Hyde Park — but it has its own bank, its own postal service, its own Latin-speaking ATMs and the world's only Swiss Guard, sworn to protect the Pope.",
+      "St Peter's Basilica, in front of you, was built on the spot where the apostle Peter was crucified upside down by the emperor Nero around 64 AD. The original church was put up by Constantine in the fourth century. The current one took 120 years and the work of Bramante, Raphael, Michelangelo, and Bernini. Michelangelo designed the dome at the age of seventy-one and never lived to see it finished.",
+      "Inside is the largest church in the world by interior volume. Bernini's bronze canopy over the high altar, the Baldacchino, is twenty-eight metres tall — the height of an eight-storey building.",
+      "Underneath the floor, in a series of crypts called the Vatican Necropolis, archaeologists discovered in the twentieth century the bones of a first-century man, in a niche directly below the dome — exactly where tradition said Peter was buried."
+    ],
+    sources: ["Wikipedia: St Peter's Basilica", "Vatican Museums official guide"]
+  },
+  // ---------- LONDON ----------
+  {
+    id: "bigben", name: "Elizabeth Tower", location: "Westminster · London, UK",
+    city: "London", country: "UK", lat: 51.5007, lng: -0.1246,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Big.Ben.London.jpg/480px-Big.Ben.London.jpg",
+    transcript: [
+      "First, a small correction. The tower in front of you isn't called Big Ben. The tower is the Elizabeth Tower, renamed in 2012 for the Queen's Diamond Jubilee. Big Ben is the great bell inside it — thirteen and a half tons of bronze, the second-heaviest bell in Britain.",
+      "When the bell was cast in 1856 it cracked almost immediately during testing. They recast it. The second one cracked too, two months after being installed in the tower. Rather than melt it down again, the engineers turned the bell a quarter-turn so the hammer would strike a different spot, and replaced the hammer with a lighter one. The crack is still there. It's why Big Ben sounds slightly off-key — a distinctive, slightly mournful tone you can hear for miles.",
+      "The clock itself is a marvel of Victorian engineering. Its accuracy is fine-tuned by stacking old British penny coins on the pendulum. Adding one penny makes the clock gain two-fifths of a second per day. They've been adjusting it this way for over a century.",
+      "The whole tower leans about half a metre to the northwest. Far less than Pisa, but enough to notice if you know where to stand."
+    ],
+    sources: ["Wikipedia: Elizabeth Tower", "UK Parliament — official tower history"]
+  },
+  {
+    id: "towerbridge", name: "Tower Bridge", location: "Tower Bridge Road · London, UK",
+    city: "London", country: "UK", lat: 51.5055, lng: -0.0754,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Tower_Bridge_from_Shad_Thames.jpg/640px-Tower_Bridge_from_Shad_Thames.jpg",
+    transcript: [
+      "This is Tower Bridge, finished in 1894 — and it's much younger than people assume. Tourists often confuse it with the much older London Bridge a few hundred metres upriver, but Tower Bridge is a Victorian engineering showpiece, only about a hundred and thirty years old.",
+      "The bridge has two purposes. It's a road bridge, but the central span — what's called the bascule section — splits in two and lifts upward to let tall ships pass. Originally it was raised about fifty times a day. Now, with London's docks gone, it's lifted around eight hundred times a year, on request, with twenty-four hours' notice. Yachts and tall ships book a slot.",
+      "The two towers were dressed in stone — Cornish granite and Portland limestone — to match the medieval Tower of London right next to it. But underneath the masonry, the structure is steel. About eleven thousand tons of it. Most Londoners don't realise the towers are essentially Victorian skyscrapers wearing a costume.",
+      "In 1952, a bus driver crossing the bridge realised the bascules were lifting underneath him. He floored the accelerator and jumped a one-metre gap with a double-decker full of passengers. He was given a small bonus."
+    ],
+    sources: ["Wikipedia: Tower Bridge", "City of London archives"]
+  },
+  {
+    id: "buckingham", name: "Buckingham Palace", location: "Westminster · London, UK",
+    city: "London", country: "UK", lat: 51.5014, lng: -0.1419,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Buckingham_Palace_from_gardens%2C_London%2C_UK_-_Diliff.jpg/640px-Buckingham_Palace_from_gardens%2C_London%2C_UK_-_Diliff.jpg",
+    transcript: [
+      "You're looking at the official London residence of the British monarch. Buckingham Palace has 775 rooms, including 78 bathrooms, 92 offices, and a private chapel. The Queen's gardens behind the building cover 39 acres and have their own lake.",
+      "The flag flying above tells you whether the monarch is in. If you see the Royal Standard — red, gold and blue with lions and a harp — the King is in residence. If you see the Union Jack, he's somewhere else.",
+      "The palace started life as a townhouse for the Duke of Buckingham in 1703. King George the Third bought it in 1761 as a private home for his wife, Queen Charlotte, who gave birth to fourteen of her fifteen children inside. It only became the official royal residence in 1837, when the young Queen Victoria moved in three weeks after taking the throne. She found it cold and badly ventilated and complained constantly. The chimneys smoked. The bells didn't work. The kitchens were so far from the dining rooms that meals arrived cold.",
+      "Today the changing of the guard happens out front most days at eleven AM. It's been performed in roughly its current form since 1660."
+    ],
+    sources: ["Wikipedia: Buckingham Palace", "Royal Collection Trust"]
+  },
+  // ---------- single-landmark cities ----------
+  {
+    id: "opera", name: "Sydney Opera House", location: "Bennelong Point · Sydney, Australia",
+    city: "Sydney", country: "Australia", lat: -33.8568, lng: 151.2153,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Sydney_Opera_House_-_Dec_2008.jpg/640px-Sydney_Opera_House_-_Dec_2008.jpg",
+    transcript: [
+      "The Sydney Opera House nearly didn't happen. In 1957, a thirty-eight year old Danish architect called Jørn Utzon entered an international competition with a sketch so radical the judges initially rejected it. The American architect Eero Saarinen pulled it from the discard pile and convinced the panel to look again.",
+      "The building took fourteen years to construct, ten years longer than planned, and cost fourteen times the original budget. The shells were the problem. Nobody knew how to actually build them. Utzon eventually solved it in 1961 by realising every shell could be cut from the surface of a single imaginary sphere — like segments of an orange.",
+      "Halfway through construction, a new state government refused to pay him. Utzon resigned, left Australia in 1966, and never came back. He never saw the building finished. The Queen opened it in 1973 without him.",
+      "More than a million ceramic tiles cover those shells, made in Sweden. Look closely and they're not actually white — they alternate matte and glossy in a chevron pattern, which is why the building seems to shimmer differently from every angle."
+    ],
+    sources: ["Wikipedia: Sydney Opera House", "Sydney Opera House Trust archives"]
+  },
+  {
+    id: "liberty", name: "Statue of Liberty", location: "Liberty Island · New York, USA",
+    city: "New York", country: "USA", lat: 40.6892, lng: -74.0445,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Statue_of_Liberty_7.jpg/640px-Statue_of_Liberty_7.jpg",
+    transcript: [
+      "Lady Liberty is a gift from France. She arrived in New York in 1885 packed into two hundred and fourteen wooden crates and was assembled on a pedestal the Americans had crowdfunded. When the money ran out partway through, the publisher Joseph Pulitzer ran a campaign in his newspaper that raised the rest from a hundred and twenty thousand small donations, most of them under a dollar.",
+      "Her copper skin is only about two millimetres thick — roughly the thickness of two coins stacked together. The internal frame that holds her up was designed by Gustave Eiffel, the same engineer who would later build the tower in Paris. He used a flexible iron skeleton that lets the statue sway in the wind without cracking.",
+      "She wasn't always green. For her first thirty years she was a shiny copper brown, the colour of a new penny. Oxidation slowly turned her the pale verdigris you see now. The patina actually protects the copper underneath.",
+      "And the tablet she carries? It's inscribed with the date of American independence — July fourth, 1776 — in Roman numerals."
+    ],
+    sources: ["Wikipedia: Statue of Liberty", "National Park Service"]
+  },
+  {
+    id: "taj", name: "Taj Mahal", location: "Agra · Uttar Pradesh, India",
+    city: "Agra", country: "India", lat: 27.1751, lng: 78.0421,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Taj_Mahal_%28Edited%29.jpeg/640px-Taj_Mahal_%28Edited%29.jpeg",
+    transcript: [
+      "The Taj Mahal is a tomb. Most visitors don't realise that. Behind the white marble facade, in a quiet underground chamber, lie the remains of Mumtaz Mahal — the favourite wife of the Mughal emperor Shah Jahan. She died in 1631 giving birth to their fourteenth child.",
+      "Shah Jahan was inconsolable. He commissioned this entire complex as her mausoleum. Twenty thousand artisans worked on it for over twenty years. The marble was hauled from Rajasthan by a thousand elephants. The inlay work uses precious stones from across Asia — jade from China, turquoise from Tibet, sapphires from Sri Lanka, lapis from Afghanistan.",
+      "The building is engineered to be perfectly symmetrical, except for one detail. Shah Jahan's own tomb was added decades later, beside his wife's, breaking the symmetry. He hadn't planned it that way. His own son deposed him and confined him to a fortress in Agra for the last eight years of his life. From his window he could see this building. When he died, he was buried next to her.",
+      "The marble shifts colour through the day. Pale pink at dawn, brilliant white at midday, golden at sunset, and silvery-blue under a full moon."
+    ],
+    sources: ["Wikipedia: Taj Mahal", "UNESCO World Heritage citation"]
+  },
+  {
+    id: "pyramids", name: "Great Pyramid of Giza", location: "Giza Plateau · Cairo, Egypt",
+    city: "Cairo", country: "Egypt", lat: 29.9792, lng: 31.1342,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Kheops-Pyramid.jpg/640px-Kheops-Pyramid.jpg",
+    transcript: [
+      "The Great Pyramid is the oldest of the Seven Wonders of the Ancient World — and the only one still standing. It was built around 2560 BC for the pharaoh Khufu. For nearly four thousand years, until Lincoln Cathedral was completed in 1311, this was the tallest building on Earth.",
+      "It contains roughly two and a half million stone blocks. The largest weigh up to eighty tons. They were quarried, hauled and lifted into place using techniques we still don't fully understand. A recent French study found that the workers may have built ramps inside the pyramid itself, spiralling up as construction rose.",
+      "Forget what you've heard about slaves building it. Excavations of the workers' village next door — discovered only in 1990 — show a well-fed, well-paid workforce of skilled labourers. They had bakeries, breweries, doctors, and rotation schedules. They were Egyptian craftsmen, proud of the work.",
+      "Originally the entire pyramid was sheathed in polished white limestone that gleamed in the desert sun for miles. The casing stones were gradually stripped over the centuries to build medieval Cairo. What you see now is the rough core that was always meant to be hidden."
+    ],
+    sources: ["Wikipedia: Great Pyramid of Giza", "Mark Lehner, The Complete Pyramids"]
+  },
+  {
+    id: "machu", name: "Machu Picchu", location: "Cusco Region, Peru",
+    city: "Cusco", country: "Peru", lat: -13.1631, lng: -72.5450,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/Machu_Picchu%2C_Peru.jpg/640px-Machu_Picchu%2C_Peru.jpg",
+    transcript: [
+      "Machu Picchu was hidden from the outside world for almost four hundred years. The Inca built it around 1450, abandoned it about a century later as the Spanish empire collapsed in on the region, and the jungle reclaimed it. It wasn't shown to a Western explorer until 1911, when an American historian called Hiram Bingham was led here by a local farmer.",
+      "It sits on a saddle between two mountains, two and a half kilometres above sea level. The Inca built it without iron tools, without the wheel, and without any written language to record their plans. Each stone was shaped to fit perfectly against its neighbours — so tightly you can't slide a knife blade between them. No mortar.",
+      "It survived because of that engineering. The site sits on two fault lines and gets two metres of rain a year. Modern buildings would have crumbled. The Inca foundations have a layer of small stones that lets earthquake vibrations dissipate, and an elaborate drainage system underneath that's still working today.",
+      "Nobody knows for certain what it was. A royal estate, an astronomical observatory, a religious retreat — the leading theories all overlap. The Inca didn't tell us. They didn't expect us to find it."
+    ],
+    sources: ["Wikipedia: Machu Picchu", "UNESCO World Heritage citation"]
+  },
+  {
+    id: "acropolis", name: "Acropolis of Athens", location: "Acropolis Hill · Athens, Greece",
+    city: "Athens", country: "Greece", lat: 37.9715, lng: 23.7267,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Attica_06-13_Athens_50_View_from_Philopappos_-_Acropolis_Hill.jpg/640px-Attica_06-13_Athens_50_View_from_Philopappos_-_Acropolis_Hill.jpg",
+    transcript: [
+      "The Parthenon, the temple at the heart of the Acropolis, is older than you probably think. It was finished in 438 BC, which means it has been standing for almost two and a half thousand years.",
+      "Look closely and you'll notice something strange. There isn't a single straight line in the building. Every column bulges slightly in the middle. The platform curves upward toward the centre by about eleven centimetres. The columns lean inward. The corners are wider than the inner columns. None of it is by accident. The Greeks knew that perfectly straight lines look subtly wrong to the human eye — they appear to sag. So they built optical corrections into the architecture. The Parthenon looks straight precisely because it isn't.",
+      "It survived as a temple for a thousand years, then a Christian church for another thousand, then a mosque, then a gunpowder store. In 1687, a Venetian shell hit the gunpowder. The explosion blew the roof off and shattered the centre of the building. The ruin you see is the result.",
+      "Many of the surviving sculptures are no longer here. They were removed by Lord Elgin in the early 1800s and now sit in the British Museum — a dispute that hasn't been resolved in two centuries."
+    ],
+    sources: ["Wikipedia: Parthenon", "Acropolis Restoration Service"]
+  },
+  {
+    id: "brandenburg", name: "Brandenburg Gate", location: "Pariser Platz · Berlin, Germany",
+    city: "Berlin", country: "Germany", lat: 52.5163, lng: 13.3777,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/56/Brandenburger_Tor_abends.jpg/640px-Brandenburger_Tor_abends.jpg",
+    transcript: [
+      "The Brandenburg Gate has watched almost everything important happen in modern German history, from the same spot, for two and a quarter centuries.",
+      "It was finished in 1791, modelled on the entrance to the Acropolis in Athens. Napoleon marched through it in 1806 and was so impressed he had the bronze chariot on top stolen and shipped to Paris. The Prussians took it back eight years later — and quietly added an iron cross to its design as a small revenge.",
+      "Hitler used the gate as a backdrop for torch-lit parades. By the end of the Second World War the surrounding district was a ruin and the gate was riddled with bullet holes. Then in 1961 the Berlin Wall went up just a few metres in front of you. For twenty-eight years the gate stood inside the no-man's-land between East and West, accessible to neither side. It became the symbol of a divided city.",
+      "On the ninth of November 1989 the Wall fell. Within weeks, ordinary Berliners were dancing on top of the rubble at the foot of the gate. The reunified Germany chose this monument as its national symbol. You'll find it on the German two-euro coin."
+    ],
+    sources: ["Wikipedia: Brandenburg Gate", "Deutsches Historisches Museum"]
+  },
+  {
+    id: "wall", name: "Great Wall of China", location: "Mutianyu Section · Beijing, China",
+    city: "Beijing", country: "China", lat: 40.4319, lng: 116.5704,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/The_Great_Wall_of_China_at_Jinshanling-edit.jpg/640px-The_Great_Wall_of_China_at_Jinshanling-edit.jpg",
+    transcript: [
+      "Forget the myth that you can see the Great Wall from space. You can't. Astronauts have confirmed it many times — at orbital altitude, the wall is too narrow to resolve, no wider than a human hair from the moon.",
+      "But what you can see from up here, on the wall itself, is genuinely staggering. The total length of all the dynastic walls combined is over twenty-one thousand kilometres — more than half the Earth's circumference. It runs through fifteen provinces, climbs mountains, crosses deserts, and disappears into ocean. No single wall — many walls, built and rebuilt over two thousand years.",
+      "The section you're standing on, around Mutianyu, was built in the late fourteen hundreds during the Ming Dynasty. It's made of locally cut granite blocks bound with a mortar that included sticky rice. Modern materials science has shown that the rice starch made the mortar incredibly strong and water-resistant.",
+      "The wall didn't always work as a defence. Genghis Khan supposedly said: the strength of a wall depends on the courage of those who defend it. He went around it, then through it, and made himself emperor anyway."
+    ],
+    sources: ["Wikipedia: Great Wall of China", "John Man, The Great Wall"]
+  },
+  {
+    id: "christ", name: "Christ the Redeemer", location: "Corcovado · Rio de Janeiro, Brazil",
+    city: "Rio de Janeiro", country: "Brazil", lat: -22.9519, lng: -43.2105,
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/Christ_on_Corcovado_mountain.JPG/480px-Christ_on_Corcovado_mountain.JPG",
+    transcript: [
+      "The statue you're looking at took nine years to build, mostly because everything had to come up the mountain by a tiny rack railway built half a century earlier for tourists. There was no road.",
+      "It was finished in 1931 — thirty metres of reinforced concrete clad in six million small soapstone tiles. The arms span twenty-eight metres from fingertip to fingertip. Each finger is over a metre long. The whole thing weighs more than a thousand tonnes.",
+      "It was originally going to look quite different. The first proposal was a Christ holding a cross in one hand and a globe in the other. The sculptor, Paul Landowski, eventually settled on the open-armed pose you see now — partly for visual simplicity, partly because the outstretched arms made the statue read clearly from down in the city even when half-hidden by cloud.",
+      "Lightning strikes it several times a year. The exposed soapstone slowly chips away. There's a small chapel inside the base where weddings still happen — couples climbing seven hundred and forty kilometres of road and stairs to be married underneath the most photographed statue in the southern hemisphere."
+    ],
+    sources: ["Wikipedia: Christ the Redeemer (statue)", "UNESCO — Carioca Landscapes"]
+  }
+];
+
+const TOURS = [
+  { name: "The Vatican Uncovered", city: "Rome", duration: "2h 15m", price: "£11.99", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/0_Bas%C3%ADlica_de_San_Pedro_-_Ciudad_del_Vaticano.JPG/480px-0_Bas%C3%ADlica_de_San_Pedro_-_Ciudad_del_Vaticano.JPG" },
+  { name: "Louvre Highlights", city: "Paris", duration: "1h 40m", price: "£9.99", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Louvre_Museum_Wikimedia_Commons.jpg/480px-Louvre_Museum_Wikimedia_Commons.jpg" },
+  { name: "Kyoto Temple Walk", city: "Kyoto", duration: "1h 55m", price: "£10.99", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Kinkaku-ji_2015.JPG/480px-Kinkaku-ji_2015.JPG" },
+  { name: "Pompeii: A Day in 79 AD", city: "Naples", duration: "2h 30m", price: "£12.99", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Pompeji_-_Tempio_di_Apollo_2.jpg/480px-Pompeji_-_Tempio_di_Apollo_2.jpg" },
+  { name: "Old Marrakech Souks", city: "Marrakech", duration: "1h 25m", price: "£8.99", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Marrakech_-_panoramio_%2818%29.jpg/480px-Marrakech_-_panoramio_%2818%29.jpg" },
+  { name: "Edinburgh Old Town", city: "Edinburgh", duration: "1h 35m", price: "£9.99", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Edinburgh_Old_Town_from_Calton_Hill.jpg/480px-Edinburgh_Old_Town_from_Calton_Hill.jpg" }
+];
+
+// ============================================================
+// ROUTES
+// ============================================================
+const ROUTES_SEED = [
+  {
+    id: "andrew-paris",
+    name: "Paris in a weekend",
+    author: "You",
+    authorYou: true,
+    initials: "Y",
+    city: "Paris", country: "France",
+    description: "Three icons in twenty-four hours of walking. Start at the river, end at the tower.",
+    estimatedTime: "≈ 4 hrs walking · 5.6 km",
+    stops: ["notredame", "louvre", "eiffel"],
+    visited: ["notredame"],
+    isMine: true,
+    isShared: false,
+  },
+  {
+    id: "mum-london",
+    name: "Mum's London highlights",
+    author: "Helen K.",
+    authorYou: false,
+    initials: "H",
+    city: "London", country: "UK",
+    description: "Three places I think you'll love. Don't skip the bridge at sunset — that's when it lifts most often.",
+    estimatedTime: "≈ 3 hrs walking · 4.2 km",
+    stops: ["bigben", "buckingham", "towerbridge"],
+    visited: [],
+    isMine: false,
+    isReceived: true,
+  },
+  {
+    id: "lore-rome",
+    name: "Eternal Rome",
+    author: "Lore Editorial",
+    authorYou: false,
+    initials: "L",
+    city: "Rome", country: "Italy",
+    description: "A ninety-minute loop through Rome's most photographed places, with the stories that make them more than just photos.",
+    estimatedTime: "≈ 90 min walking · 2.4 km",
+    stops: ["colosseum", "pantheon", "trevi", "vatican"],
+    visited: [],
+    isMine: false,
+    isFeatured: true,
+  },
+];
+
+// Voice notes — seed entries for Helen's London route
+// Note shape: { type: 'text'|'audio', content, authorName, duration, createdAt }
+const NOTES_SEED = {
+  "mum-london::bigben": { type: "text", content: "Don't bother going inside the building. The magic is here at street level. Your father proposed to me thirty metres from where you're standing. Listen for the bell at noon — the cracked one is what gives it that mournful sound everybody hears.", authorName: "Helen K.", duration: 22 },
+  "mum-london::buckingham": { type: "text", content: "If you've timed it right and it's eleven AM you'll catch the changing of the guard. The flag on top tells you whether the King is in. We had picnics across the park here when you were tiny.", authorName: "Helen K.", duration: 16 },
+  "mum-london::towerbridge": { type: "text", content: "Walk across the bridge at sunset, then look back from the south side. That's the photograph you want. If you're lucky it'll lift while you're there. Your aunt and I waited two hours once.", authorName: "Helen K.", duration: 14 },
+};
+
+// ============================================================
+// PRODUCTION ENDPOINTS
+// ============================================================
+const LORE_API_BASE = "https://lore-api.andrew-2cd.workers.dev";
+const SUPABASE_URL = "https://unqxxtwisakmkidjuwsv.supabase.co";
+// Anon key is safe to embed publicly — RLS policies enforce data isolation
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVucXh4dHdpc2FrbWtpZGp1d3N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxNTI2NTAsImV4cCI6MjA5MjcyODY1MH0.F43HJSnazCSV6fuUQyJo3_TvxusdNLOU-D7m37l9-TA";
+
+// Voice picker — public ElevenLabs default voices, available to every account
+const VOICES = [
+  { id: "29vD33N1CtxCmqQRPOHJ", name: "Drew", description: "Warm older American narrator", note: "Morgan-Freeman-ish" },
+  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", description: "Deep American baritone", note: "Obama-ish gravitas" },
+  { id: "AeRdCCKzvd23BpJoofzx", name: "Nathaniel", description: "British, calm, considered", note: "Original Lore voice" },
+];
+const DEFAULT_VOICE_ID = VOICES[0].id;
+
+// ============================================================
+// STATE & STORAGE
+// ============================================================
+const STORE_KEY_J = "lore.journal.v1";
+const STORE_KEY_R = "lore.routes.v1";
+const STORE_KEY_N = "lore.notes.v1";
+const STORE_KEY_S = "lore.session.v2";
+const STORE_KEY_V = "lore.voice.v1";
+
+function loadVoicePref() { try { return localStorage.getItem(STORE_KEY_V) || DEFAULT_VOICE_ID; } catch (e) { return DEFAULT_VOICE_ID; } }
+function saveVoicePref(id) { try { localStorage.setItem(STORE_KEY_V, id); } catch (e) {} }
+function currentVoice() { return VOICES.find(v => v.id === loadVoicePref()) || VOICES[0]; }
+const STATE = {
+  currentLandmark: LANDMARKS[0],
+  isPlaying: false,
+  utterance: null,
+  speechWords: [],
+  currentWordIndex: 0,
+  startTime: 0,
+  totalDuration: 0,
+  progressTimer: null,
+  // Routes
+  currentRoute: null,
+  followingIndex: 0,
+  // Picker
+  pickerMode: "demo",      // 'demo' | 'addStop'
+  pickerCallback: null,
+  pickerCityFilter: "All",
+  // Create-route
+  draftRoute: null,        // { name, desc, city, stops: [landmarkId,...] }
+  // Route-following context (set when user opens an explainer from following mode)
+  followingRouteContext: null, // { routeId, stopId } or null
+  // Auth session (loaded from localStorage on init)
+  session: null,
+  // Current view name for cross-cutting re-renders
+  view: "home",
+};
+
+function loadJournal() {
+  try { const r = localStorage.getItem(STORE_KEY_J); if (r) return JSON.parse(r); } catch (e) {}
+  return seedJournal();
+}
+function saveJournal(j) { try { localStorage.setItem(STORE_KEY_J, JSON.stringify(j)); } catch (e) {} }
+function seedJournal() {
+  const now = Date.now(); const day = 86400 * 1000;
+  const seeded = [
+    { landmarkId: "colosseum", ts: now - 6 * day - 2 * 3600 * 1000 },
+    { landmarkId: "acropolis", ts: now - 3 * day - 5 * 3600 * 1000 },
+    { landmarkId: "opera",     ts: now - 180 * day },
+    { landmarkId: "notredame", ts: now - 14 * day - 4 * 3600 * 1000 },
+  ];
+  saveJournal(seeded); return seeded;
+}
+function addToJournal(landmarkId) {
+  const j = loadJournal();
+  if (j.length && j[j.length-1].landmarkId === landmarkId && Date.now() - j[j.length-1].ts < 60_000) return;
+  const entry = { landmarkId, ts: Date.now() };
+  j.push(entry);
+  saveJournal(j);
+  // Fire-and-forget cloud sync if signed in
+  cloudSyncJournalEntry(entry);
+}
+
+function loadRoutes() {
+  try { const r = localStorage.getItem(STORE_KEY_R); if (r) return JSON.parse(r); } catch (e) {}
+  saveRoutes(ROUTES_SEED); return JSON.parse(JSON.stringify(ROUTES_SEED));
+}
+function saveRoutes(r) { try { localStorage.setItem(STORE_KEY_R, JSON.stringify(r)); } catch (e) {} }
+function getRoute(id) { return loadRoutes().find(r => r.id === id); }
+function updateRoute(id, patch) {
+  const all = loadRoutes(); const idx = all.findIndex(r => r.id === id);
+  if (idx === -1) return; all[idx] = { ...all[idx], ...patch }; saveRoutes(all); return all[idx];
+}
+function addRoute(r) { const all = loadRoutes(); all.unshift(r); saveRoutes(all); }
+
+// Notes
+function loadNotes() {
+  try { const r = localStorage.getItem(STORE_KEY_N); if (r) return JSON.parse(r); } catch (e) {}
+  saveNotes(NOTES_SEED); return JSON.parse(JSON.stringify(NOTES_SEED));
+}
+function saveNotes(n) { try { localStorage.setItem(STORE_KEY_N, JSON.stringify(n)); } catch (e) {} }
+function noteKey(routeId, stopId) { return `${routeId}::${stopId}`; }
+function getNote(routeId, stopId) { return loadNotes()[noteKey(routeId, stopId)]; }
+function setNote(routeId, stopId, note) { const all = loadNotes(); all[noteKey(routeId, stopId)] = note; saveNotes(all); }
+function deleteNote(routeId, stopId) { const all = loadNotes(); delete all[noteKey(routeId, stopId)]; saveNotes(all); }
+
+function groupTrips(journal) {
+  const enriched = journal
+    .map(e => ({ ...e, lm: findLandmark(e.landmarkId) }))
+    .filter(e => e.lm)
+    .sort((a, b) => a.ts - b.ts);
+  const trips = [];
+  for (const e of enriched) {
+    const cityName = e.lm.city || "Live exploration";
+    const countryName = e.lm.country || "";
+    const last = trips[trips.length - 1];
+    const gap = last ? e.ts - last.entries[last.entries.length - 1].ts : Infinity;
+    if (last && last.city === cityName && gap < 5 * 86400 * 1000) {
+      last.entries.push(e);
+    } else if (last && gap < 2 * 86400 * 1000) {
+      last.entries.push(e); last.multiCity = true;
+    } else {
+      trips.push({ city: cityName, country: countryName, entries: [e] });
+    }
+  }
+  return trips.reverse();
+}
+
+// ============================================================
+// VIEW SWITCHING
+// ============================================================
+function setView(v) {
+  STATE.view = v;
+  // Keep modal-style views (explainer, routeDetail, following, complete, createRoute) outside the main tab cycle
+  const tabViews = ["home", "routes", "journal", "store"];
+  if (tabViews.includes(v)) {
+    tabViews.forEach(tv => document.getElementById(tv).classList.toggle("active", tv === v));
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === v));
+  } else {
+    document.getElementById(v).classList.add("active");
+  }
+  if (v === "journal") renderJournal();
+  if (v === "routes") renderRoutes();
+  if (v === "store") renderStore();
+  if (v === "home") renderHome();
+}
+
+// ============================================================
+// HOME
+// ============================================================
+function renderHome() {
+  const lm = STATE.currentLandmark;
+  document.getElementById("locName").textContent = lm.name;
+  document.getElementById("locSub").textContent = lm.location;
+  // Toggle LIVE indicator on the demo pill when current landmark came from real GPS
+  const pill = document.getElementById("demoPill");
+  if (lm.isLive) { pill.textContent = "Live · OSM + Wikipedia"; pill.style.background = "rgba(47,125,79,0.2)"; pill.style.color = "#4FB97B"; pill.style.borderColor = "rgba(47,125,79,0.4)"; }
+  else { pill.textContent = "Demo · Tap to change"; pill.style.background = ""; pill.style.color = ""; pill.style.borderColor = ""; }
+  const sameCity = LANDMARKS.filter(l => l.city === lm.city && l.id !== lm.id);
+  const others = LANDMARKS.filter(l => l.id !== lm.id && l.city !== lm.city).sort(() => Math.random() - 0.5);
+  const nearby = [...sameCity, ...others].slice(0, 4);
+  const list = document.getElementById("nearbyList");
+  list.innerHTML = "";
+  for (const n of nearby) {
+    const dist = Math.round(150 + Math.random() * 1300);
+    const item = document.createElement("div");
+    item.className = "nearby-item";
+    item.innerHTML = `
+      <div class="thumb" style="background-image:url('${n.image}')"></div>
+      <div class="nearby-info"><div class="nearby-name">${n.name}</div><div class="nearby-meta">${n.city} · ${dist} m</div></div>
+      <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>`;
+    item.addEventListener("click", () => { STATE.currentLandmark = n; renderHome(); openExplainer(n); });
+    list.appendChild(item);
+  }
+}
+
+// ============================================================
+// EXPLAINER
+// ============================================================
+function openExplainer(lm) {
+  STATE.currentLandmark = lm;
+  // Default: clear any prior route-following context. followListen() re-sets it after this returns.
+  STATE.followingRouteContext = null;
+  // Persist live landmarks so journal/route lookups can find them later
+  if (lm.isLive) rememberDiscovered(lm);
+  document.getElementById("explainerName").textContent = lm.name;
+  document.getElementById("explainerLoc").textContent = lm.location;
+  document.getElementById("nowPlayingName").textContent = lm.name;
+  document.getElementById("explainerHero").style.backgroundImage = `url('${lm.image}')`;
+  const t = document.getElementById("transcript");
+  t.innerHTML = ""; STATE.speechWords = [];
+  for (const para of lm.transcript) {
+    const p = document.createElement("p");
+    const words = para.split(/(\s+)/);
+    for (const w of words) {
+      if (/\s+/.test(w)) p.appendChild(document.createTextNode(w));
+      else if (w) { const span = document.createElement("span"); span.className = "word"; span.textContent = w; p.appendChild(span); STATE.speechWords.push(span); }
+    }
+    t.appendChild(p);
+  }
+  const c = document.getElementById("citations");
+  c.innerHTML = `<div class="eyebrow" style="color:var(--muted);margin-bottom:8px">Sources</div>` +
+    lm.sources.map(s => `<div class="cite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.5-1.5"/></svg>${s}</div>`).join("");
+  document.getElementById("progressFill").style.width = "0%";
+  document.getElementById("audioTime").textContent = "0:00";
+  document.getElementById("explainer").classList.add("active");
+  addToJournal(lm.id);
+  setTimeout(startSpeech, 500);
+}
+function closeExplainer() {
+  document.getElementById("explainer").classList.remove("active");
+  stopSpeech();
+  stopNotePlayback();
+  STATE.followingRouteContext = null;
+}
+
+// ============================================================
+// SPEECH
+// ============================================================
+function pickVoice() {
+  const voices = speechSynthesis.getVoices(); if (!voices.length) return null;
+  return voices.find(v => /en[-_]GB/i.test(v.lang) && /Daniel|Kate|Serena|Karen/i.test(v.name)) ||
+         voices.find(v => /en[-_]GB/i.test(v.lang)) ||
+         voices.find(v => /en[-_]US/i.test(v.lang) && /Samantha|Alex|Aria/i.test(v.name)) ||
+         voices.find(v => /en/i.test(v.lang)) || voices[0];
+}
+async function startSpeech() {
+  stopSpeech();
+  const lm = STATE.currentLandmark;
+  const fullText = lm.transcript.join("\n\n");
+  // Premium tier: signed-in users get ElevenLabs via the worker
+  if (isSignedIn()) {
+    try {
+      const voice = currentVoice();
+      showToast(`Loading ${voice.name}'s voice…`);
+      const res = await fetch(`${LORE_API_BASE}/api/voice`, {
+        method: "POST",
+        headers: { ...authedHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ text: fullText, voice_id: voice.id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audio_url) { playPremiumAudio(data.audio_url); return; }
+      }
+    } catch (e) { /* fall through to Web Speech */ }
+  }
+  if (!("speechSynthesis" in window)) { showToast("Audio not supported — try Chrome or Safari"); return; }
+  const u = new SpeechSynthesisUtterance(fullText);
+  u.rate = 0.95; u.pitch = 1.0; u.volume = 1.0;
+  const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = "en-GB"; }
+  STATE.utterance = u; STATE.startTime = Date.now();
+  STATE.totalDuration = (STATE.speechWords.length / 155) * 60 / 0.95 * 1000;
+  u.onend = () => {
+    setPlaying(false);
+    document.getElementById("progressFill").style.width = "100%";
+    clearInterval(STATE.progressTimer);
+    STATE.speechWords.forEach(s => s.classList.add("spoken"));
+    // If we're in route-following context and a voice note exists for this stop, auto-play it next.
+    if (STATE.followingRouteContext) {
+      const { routeId, stopId } = STATE.followingRouteContext;
+      const note = getNote(routeId, stopId);
+      if (note) {
+        setTimeout(() => {
+          showToast(`Now: note from ${note.authorName}`);
+          playNote(routeId, stopId, null);
+        }, 700);
+      }
+    }
+  };
+  u.onerror = () => { setPlaying(false); showToast("Couldn't start narration"); };
+  speechSynthesis.cancel(); speechSynthesis.speak(u); setPlaying(true);
+  clearInterval(STATE.progressTimer);
+  STATE.progressTimer = setInterval(() => {
+    const elapsed = Date.now() - STATE.startTime;
+    const pct = Math.min(100, (elapsed / STATE.totalDuration) * 100);
+    document.getElementById("progressFill").style.width = pct + "%";
+    document.getElementById("audioTime").textContent = formatTime(elapsed / 1000);
+    const idx = Math.min(STATE.speechWords.length - 1, Math.floor((elapsed / STATE.totalDuration) * STATE.speechWords.length));
+    for (let i = 0; i < STATE.speechWords.length; i++) STATE.speechWords[i].classList.toggle("spoken", i <= idx);
+    if (idx > 0 && idx % 12 === 0) STATE.speechWords[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 200);
+}
+function stopSpeech() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (STATE.premiumAudio) { STATE.premiumAudio.pause(); STATE.premiumAudio = null; }
+  clearInterval(STATE.progressTimer);
+  setPlaying(false);
+}
+
+function playPremiumAudio(url) {
+  const audio = new Audio(url);
+  STATE.premiumAudio = audio;
+  STATE.startTime = Date.now();
+  // Estimate duration from word count for the karaoke highlight (real duration arrives once audio loads)
+  STATE.totalDuration = Math.max(1000, (STATE.speechWords.length / 155) * 60 * 1000);
+  audio.addEventListener("loadedmetadata", () => {
+    if (audio.duration && isFinite(audio.duration)) STATE.totalDuration = audio.duration * 1000;
+  });
+  audio.addEventListener("ended", () => {
+    setPlaying(false);
+    document.getElementById("progressFill").style.width = "100%";
+    clearInterval(STATE.progressTimer);
+    STATE.speechWords.forEach(s => s.classList.add("spoken"));
+    if (STATE.followingRouteContext) {
+      const { routeId, stopId } = STATE.followingRouteContext;
+      const note = getNote(routeId, stopId);
+      if (note) {
+        setTimeout(() => {
+          showToast(`Now: note from ${note.authorName}`);
+          playNote(routeId, stopId, null);
+        }, 700);
+      }
+    }
+  });
+  audio.addEventListener("error", () => { showToast("Premium voice failed · falling back"); setPlaying(false); });
+  audio.play().catch(() => showToast("Tap again to start audio"));
+  setPlaying(true);
+  clearInterval(STATE.progressTimer);
+  STATE.progressTimer = setInterval(() => {
+    const elapsed = audio.currentTime * 1000;
+    const pct = Math.min(100, (elapsed / STATE.totalDuration) * 100);
+    document.getElementById("progressFill").style.width = pct + "%";
+    document.getElementById("audioTime").textContent = formatTime(elapsed / 1000);
+    const idx = Math.min(STATE.speechWords.length - 1, Math.floor((elapsed / STATE.totalDuration) * STATE.speechWords.length));
+    for (let i = 0; i < STATE.speechWords.length; i++) STATE.speechWords[i].classList.toggle("spoken", i <= idx);
+    if (idx > 0 && idx % 12 === 0) STATE.speechWords[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 200);
+}
+function setPlaying(p) {
+  STATE.isPlaying = p;
+  const icon = document.getElementById("playIcon");
+  icon.innerHTML = p ? '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>' : '<path d="M7 5l12 7-12 7V5z"/>';
+}
+function togglePlay() { STATE.isPlaying ? stopSpeech() : startSpeech(); }
+function formatTime(s) { const m = Math.floor(s / 60); const sec = Math.floor(s % 60); return `${m}:${sec.toString().padStart(2, "0")}`; }
+
+// ============================================================
+// JOURNAL
+// ============================================================
+function renderJournal() {
+  const trips = groupTrips(loadJournal());
+  const list = document.getElementById("tripList");
+  if (!trips.length) { list.innerHTML = `<div class="empty"><h3>No entries yet</h3><p>Tap a place to start your journal.</p></div>`; return; }
+  list.innerHTML = "";
+
+  // Map at the top — shows every visited place, color-coded by trip
+  const j = loadJournal();
+  const placesByTrip = trips.map((trip, ti) => trip.entries.map(e => ({ ...e.lm, tripIndex: ti, tripName: trip.city })));
+  const allPins = placesByTrip.flat().filter(p => p.lat && p.lng);
+  const tripColors = ["#C9A961", "#B95934", "#4FB97B", "#7AA8E5", "#E5A0C8", "#A87BC4"];
+  // Compute lat/lng to viewBox 0..1000 x 0..500 (equirectangular)
+  function ll2xy(lat, lng) {
+    const x = (lng + 180) * (1000 / 360);
+    const y = (90 - lat) * (500 / 180);
+    return { x, y };
+  }
+  const pinsHtml = allPins.map(p => {
+    const { x, y } = ll2xy(p.lat, p.lng);
+    const color = tripColors[p.tripIndex % tripColors.length];
+    return `<g class="map-pin"><circle cx="${x}" cy="${y}" r="9" fill="${color}" opacity="0.25"/><circle cx="${x}" cy="${y}" r="4.5" fill="${color}" stroke="#F5F1EA" stroke-width="0.6"><title>${p.name}${p.tripName ? ' · ' + p.tripName : ''}</title></circle></g>`;
+  }).join("");
+  const cities = new Set(allPins.map(p => p.tripName).filter(Boolean));
+  const countries = new Set(allPins.map(p => p.country).filter(Boolean));
+  const mapHtml = `<div class="journal-map-wrap">
+    <svg class="journal-map-svg" viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg">
+      <defs><pattern id="jdots" width="6" height="6" patternUnits="userSpaceOnUse"><circle cx="3" cy="3" r="0.5" fill="#2A3F60"/></pattern></defs>
+      <rect width="1000" height="500" fill="url(#jdots)"/>
+      <g fill="#2A3F60" opacity="0.85">
+        <path d="M120,90 L260,80 L300,140 L290,200 L240,260 L180,290 L130,250 L100,180 Z"/>
+        <path d="M260,290 L310,280 L330,360 L300,430 L270,450 L250,400 L240,340 Z"/>
+        <path d="M460,100 L540,95 L560,150 L530,180 L470,170 L450,135 Z"/>
+        <path d="M470,180 L560,180 L600,250 L590,340 L540,400 L500,380 L470,320 L460,240 Z"/>
+        <path d="M560,80 L820,90 L860,160 L820,230 L740,260 L680,240 L600,210 L570,150 Z"/>
+        <path d="M780,330 L890,330 L900,390 L840,410 L780,390 Z"/>
+      </g>
+      ${pinsHtml}
+    </svg>
+    <div class="journal-map-stats">
+      <div class="ms"><div class="ms-num">${allPins.length}</div><div class="ms-label">Places</div></div>
+      <div class="ms"><div class="ms-num">${cities.size}</div><div class="ms-label">Cities</div></div>
+      <div class="ms"><div class="ms-num">${countries.size}</div><div class="ms-label">Countries</div></div>
+    </div>
+  </div>`;
+  list.insertAdjacentHTML("beforeend", mapHtml);
+
+  for (const trip of trips) {
+    const dateStr = formatTripDates(trip.entries[0].ts, trip.entries[trip.entries.length-1].ts);
+    const card = document.createElement("div"); card.className = "trip-card";
+    card.innerHTML = `
+      <div class="trip-meta">
+        <div><div class="trip-name">${trip.city}${trip.multiCity ? " & beyond" : ""}</div><div class="trip-dates">${dateStr} · ${trip.country}</div></div>
+        <div class="trip-count">${trip.entries.length} stop${trip.entries.length>1?"s":""}</div>
+      </div>
+      ${trip.entries.slice().reverse().map(e => `
+        <div class="entry" data-id="${e.lm.id}">
+          <div class="thumb sm" style="background-image:url('${e.lm.image}')"></div>
+          <div class="entry-info"><div class="entry-name">${e.lm.name}</div><div class="entry-time">${formatRelative(e.ts)}</div></div>
+          <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+        </div>`).join("")}`;
+    card.querySelectorAll(".entry").forEach(el => el.addEventListener("click", () => {
+      const lm = findLandmark(el.dataset.id); if (lm) openExplainer(lm);
+    }));
+    list.appendChild(card);
+  }
+}
+function formatRelative(ts) {
+  const diff = Date.now() - ts; const day = 86400 * 1000;
+  if (diff < 3600 * 1000) return "Just now";
+  if (diff < day) return `${Math.floor(diff / (3600 * 1000))}h ago`;
+  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+function formatTripDates(s, e) {
+  const sd = new Date(s), ed = new Date(e);
+  const fmt = d => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (sd.toDateString() === ed.toDateString()) return fmt(sd) + ", " + sd.getFullYear();
+  return `${fmt(sd)} – ${fmt(ed)}, ${ed.getFullYear()}`;
+}
+
+// ============================================================
+// STORE
+// ============================================================
+function renderStore() {
+  const grid = document.getElementById("tourGrid"); grid.innerHTML = "";
+  for (const t of TOURS) {
+    const card = document.createElement("div");
+    card.style.cssText = "background:white;border:1px solid var(--line);border-radius:16px;overflow:hidden;cursor:pointer";
+    card.innerHTML = `
+      <div style="height:120px;background-size:cover;background-position:center;background-color:var(--parchment-2);background-image:url('${t.img}')"></div>
+      <div style="padding:10px 12px 12px"><div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:16px;font-weight:600;line-height:1.15">${t.name}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;display:flex;justify-content:space-between;align-items:center"><span>${t.city} · ${t.duration}</span><span style="font-weight:700;color:var(--navy);font-size:13px">${t.price}</span></div></div>`;
+    card.addEventListener("click", () => showToast("Phase-two preview · purchase flow not wired"));
+    grid.appendChild(card);
+  }
+}
+
+// ============================================================
+// ROUTES
+// ============================================================
+function renderRoutes() {
+  const all = loadRoutes();
+  const yours = all.filter(r => r.isMine);
+  const shared = all.filter(r => r.isReceived);
+  const featured = all.filter(r => r.isFeatured);
+  const yourEl = document.getElementById("yourRoutesList");
+  const sharedEl = document.getElementById("sharedRoutesList");
+  const discEl = document.getElementById("discoverRoutesList");
+  yourEl.innerHTML = ""; sharedEl.innerHTML = ""; discEl.innerHTML = "";
+  if (!yours.length) yourEl.innerHTML = `<div class="empty" style="margin:20px 8px 0;text-align:left"><p style="font-size:13px;color:var(--muted)">Tap "+ New" to build your first route.</p></div>`;
+  for (const r of yours) yourEl.appendChild(routeCard(r));
+  for (const r of shared) sharedEl.appendChild(routeCard(r));
+  for (const r of featured) discEl.appendChild(routeCard(r));
+}
+function routeCard(r) {
+  const cover = LANDMARKS.find(l => l.id === r.stops[0])?.image || "";
+  const visitedCount = (r.visited || []).length;
+  const pct = r.stops.length ? (visitedCount / r.stops.length * 100) : 0;
+  const card = document.createElement("div");
+  card.className = "route-card";
+  card.innerHTML = `
+    <div class="route-cover" style="background-image:url('${cover}')"><span class="stops-badge">${r.stops.length} stops</span></div>
+    <div class="route-info">
+      <div class="route-name">${r.name}</div>
+      <div class="route-author"><span class="author-dot">${r.initials || "?"}</span>${r.author} · ${r.city}</div>
+      <div class="route-meta-row">
+        ${visitedCount > 0 ? `<div class="progress-mini"><div class="progress-mini-fill" style="width:${pct}%"></div></div><span>${visitedCount}/${r.stops.length}</span>` : `<span>${r.estimatedTime}</span>`}
+      </div>
+    </div>`;
+  card.addEventListener("click", () => openRouteDetail(r.id));
+  return card;
+}
+
+function openRouteDetail(id) {
+  const r = getRoute(id); if (!r) return;
+  STATE.currentRoute = r;
+  document.getElementById("rdName").textContent = r.name;
+  document.getElementById("rdAuthor").innerHTML = `<span class="author-dot">${r.initials}</span> ${r.author}`;
+  document.getElementById("rdLoc").textContent = `${r.city}, ${r.country}`;
+  const cover = LANDMARKS.find(l => l.id === r.stops[0])?.image || "";
+  document.getElementById("rdHero").style.backgroundImage = `url('${cover}')`;
+  const body = document.getElementById("rdBody");
+  body.innerHTML = `
+    <div class="rd-summary">
+      <div class="stat"><div class="stat-num">${r.stops.length}</div><div class="stat-label">Stops</div></div>
+      <div class="stat"><div class="stat-num">${r.estimatedTime.match(/\d+/)[0]}${r.estimatedTime.includes("hr")?"h":"min"}</div><div class="stat-label">Time</div></div>
+      <div class="stat"><div class="stat-num">${(r.visited||[]).length}</div><div class="stat-label">Done</div></div>
+    </div>
+    <p class="rd-desc">${r.description}</p>
+    <div class="eyebrow" style="color:var(--muted);margin:18px 0 6px">The route</div>
+    ${r.stops.map((sid, i) => {
+      const lm = LANDMARKS.find(l => l.id === sid);
+      const visited = (r.visited || []).includes(sid);
+      const note = getNote(r.id, sid);
+      const noteHtml = note
+        ? `<div class="note-row" data-route="${r.id}" data-stop="${sid}">
+            <div class="note-mic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a1 1 0 00-2 0 9 9 0 008 8.94V22h2v-2.06A9 9 0 0021 11a1 1 0 00-2 0 7 7 0 11-14 0z"/></svg></div>
+            <div class="note-info"><div class="note-author">Note from ${note.authorName}</div><div class="note-preview">${note.type === 'text' ? escapeHtml(note.content) : '🎙 Voice recording'}</div></div>
+            <div class="note-duration">${formatTime(note.duration)}</div>
+          </div>`
+        : (r.author === "You" || r.isMine
+          ? `<button class="note-add" data-route="${r.id}" data-stop="${sid}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add a voice note for whoever follows this</button>`
+          : '');
+      return `<div class="rd-stop" data-lm="${sid}">
+        <div class="stop-num ${visited?"visited":""}">${visited?"✓":(i+1)}</div>
+        <div class="thumb sm" style="background-image:url('${lm.image}')"></div>
+        <div class="entry-info"><div class="entry-name">${lm.name}</div><div class="entry-time">${lm.location.split('·')[0].trim()}</div></div>
+        <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      </div>${noteHtml}`;
+    }).join("")}
+    <div style="height:140px"></div>`;
+  body.querySelectorAll(".rd-stop").forEach(el => el.addEventListener("click", () => {
+    const lm = LANDMARKS.find(l => l.id === el.dataset.lm); if (lm) openExplainer(lm);
+  }));
+  body.querySelectorAll(".note-row").forEach(el => el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    playNote(el.dataset.route, el.dataset.stop, el);
+  }));
+  body.querySelectorAll(".note-add").forEach(el => el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openNoteEditor(el.dataset.route, el.dataset.stop);
+  }));
+  const btn = document.getElementById("startRouteBtn");
+  const visitedCount = (r.visited||[]).length;
+  btn.textContent = visitedCount === 0 ? "Start route" : visitedCount === r.stops.length ? "Replay route" : `Resume · stop ${visitedCount + 1}`;
+  document.getElementById("routeDetail").classList.add("active");
+}
+function closeRouteDetail() { document.getElementById("routeDetail").classList.remove("active"); }
+
+// ============================================================
+// FOLLOWING MODE
+// ============================================================
+function startFollowing() {
+  const r = STATE.currentRoute; if (!r) return;
+  const visitedCount = (r.visited||[]).length;
+  STATE.followingIndex = visitedCount === r.stops.length ? 0 : visitedCount;
+  document.getElementById("following").classList.add("active");
+  renderFollowing();
+}
+function renderFollowing() {
+  const r = STATE.currentRoute;
+  const idx = STATE.followingIndex;
+  const lm = LANDMARKS.find(l => l.id === r.stops[idx]);
+  document.getElementById("followProgressText").textContent = `Stop ${idx+1} of ${r.stops.length}`;
+  document.getElementById("followProgressFill").style.width = ((idx) / r.stops.length * 100) + "%";
+  document.getElementById("followRouteName").textContent = `${r.name} · by ${r.author}`;
+  document.getElementById("followStopName").textContent = lm.name;
+  document.getElementById("followImage").style.backgroundImage = `url('${lm.image}')`;
+  // Walking directions
+  let directions;
+  if (idx === 0) {
+    directions = `Make your way to ${lm.name}. Look for ${lm.location.split('·')[0].trim()}.`;
+  } else {
+    const prev = LANDMARKS.find(l => l.id === r.stops[idx-1]);
+    const dist = haversine(prev.lat, prev.lng, lm.lat, lm.lng);
+    const mins = Math.max(3, Math.round(dist / 80));
+    directions = `From ${prev.name}, head toward ${lm.name}. About ${mins} minutes on foot — roughly ${dist < 1000 ? Math.round(dist) + ' m' : (dist/1000).toFixed(1) + ' km'}.`;
+  }
+  document.getElementById("followDirections").textContent = directions;
+}
+function followNext() {
+  const r = STATE.currentRoute;
+  const idx = STATE.followingIndex;
+  // Mark stop as visited
+  const visited = [...new Set([...(r.visited||[]), r.stops[idx]])];
+  updateRoute(r.id, { visited });
+  STATE.currentRoute = getRoute(r.id);
+  addToJournal(r.stops[idx]);
+  if (idx + 1 >= r.stops.length) {
+    document.getElementById("following").classList.remove("active");
+    document.getElementById("followProgressFill").style.width = "100%";
+    showCompletion();
+  } else {
+    STATE.followingIndex++;
+    renderFollowing();
+  }
+}
+function followSkip() {
+  const r = STATE.currentRoute;
+  if (STATE.followingIndex + 1 >= r.stops.length) followNext();
+  else { STATE.followingIndex++; renderFollowing(); }
+}
+function followListen() {
+  const r = STATE.currentRoute;
+  const stopId = r.stops[STATE.followingIndex];
+  const lm = LANDMARKS.find(l => l.id === stopId);
+  document.getElementById("following").classList.remove("active");
+  setTimeout(() => {
+    openExplainer(lm);
+    STATE.followingRouteContext = { routeId: r.id, stopId };
+  }, 200);
+}
+function exitFollowing() {
+  document.getElementById("following").classList.remove("active");
+  if (STATE.currentRoute) openRouteDetail(STATE.currentRoute.id);
+}
+function showCompletion() {
+  const r = STATE.currentRoute;
+  document.getElementById("completeMessage").textContent = `${r.stops.length} stops on ${r.name}, all explored. The whole route is in your journal.`;
+  document.getElementById("complete").classList.add("active");
+}
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000; const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// ============================================================
+// CREATE ROUTE
+// ============================================================
+function openCreateRoute(prefillStop) {
+  // Close any open explainer to avoid stacking modals
+  document.getElementById("explainer").classList.remove("active");
+  stopSpeech();
+  STATE.draftRoute = { name: "", desc: "", city: "", stops: prefillStop ? [prefillStop] : [] };
+  document.getElementById("crName").value = "";
+  document.getElementById("crDesc").value = "";
+  renderDraftStops();
+  document.getElementById("createRoute").classList.add("active");
+  setTimeout(() => document.getElementById("crName").focus(), 350);
+}
+function closeCreateRoute() { document.getElementById("createRoute").classList.remove("active"); STATE.draftRoute = null; }
+function renderDraftStops() {
+  const list = document.getElementById("crStopsList");
+  list.innerHTML = "";
+  const stops = STATE.draftRoute.stops;
+  document.getElementById("crStopCount").textContent = stops.length === 1 ? "1 stop" : `${stops.length} stops`;
+  for (let i = 0; i < stops.length; i++) {
+    const lm = LANDMARKS.find(l => l.id === stops[i]);
+    const row = document.createElement("div"); row.className = "stop-row";
+    row.innerHTML = `
+      <span class="stop-num" style="background:var(--brass-deep)">${i+1}</span>
+      <div class="thumb sm" style="background-image:url('${lm.image}')"></div>
+      <div class="nearby-info"><div class="entry-name">${lm.name}</div><div class="entry-time">${lm.city}</div></div>
+      <button class="stop-remove" data-i="${i}" aria-label="Remove">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M6 18L18 6"/></svg>
+      </button>`;
+    row.querySelector(".stop-remove").addEventListener("click", () => {
+      STATE.draftRoute.stops.splice(i, 1); renderDraftStops(); validateDraft();
+    });
+    list.appendChild(row);
+  }
+  validateDraft();
+}
+function validateDraft() {
+  const ok = STATE.draftRoute.stops.length >= 2 && document.getElementById("crName").value.trim().length > 0;
+  document.getElementById("crSave").disabled = !ok;
+}
+function saveDraft() {
+  const d = STATE.draftRoute;
+  const firstLm = LANDMARKS.find(l => l.id === d.stops[0]);
+  const newRoute = {
+    id: "user-" + Date.now(),
+    name: document.getElementById("crName").value.trim(),
+    description: document.getElementById("crDesc").value.trim() || `${d.stops.length} stops in ${firstLm.city}.`,
+    author: "You", authorYou: true, initials: "Y",
+    city: firstLm.city, country: firstLm.country,
+    estimatedTime: estimateTime(d.stops),
+    stops: d.stops, visited: [], isMine: true,
+  };
+  addRoute(newRoute);
+  closeCreateRoute();
+  renderRoutes();
+  setView("routes");
+  // Fire-and-forget cloud sync if signed in
+  cloudSyncRoute(newRoute);
+  setTimeout(() => { showToast("Route saved · share it?"); openShareModal(newRoute); }, 250);
+}
+function estimateTime(stopIds) {
+  if (stopIds.length < 2) return "≈ 30 min";
+  let totalM = 0;
+  for (let i = 1; i < stopIds.length; i++) {
+    const a = LANDMARKS.find(l => l.id === stopIds[i-1]); const b = LANDMARKS.find(l => l.id === stopIds[i]);
+    totalM += haversine(a.lat, a.lng, b.lat, b.lng);
+  }
+  const totalMin = Math.max(20, Math.round(totalM / 80) + stopIds.length * 15);
+  if (totalMin < 60) return `≈ ${totalMin} min walking`;
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return `≈ ${h}${m > 0 ? "." + Math.round(m/6) : ""} hrs walking · ${(totalM/1000).toFixed(1)} km`;
+}
+
+// ============================================================
+// VOICE NOTES — playback, editing, recording
+// ============================================================
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+let notePlaybackTimer = null;
+let noteCurrentEl = null;
+let noteCurrentAudio = null;
+function stopNotePlayback() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (noteCurrentAudio) { noteCurrentAudio.pause(); noteCurrentAudio = null; }
+  clearTimeout(notePlaybackTimer);
+  if (noteCurrentEl) { noteCurrentEl.classList.remove("note-playing"); noteCurrentEl = null; }
+}
+
+function playNote(routeId, stopId, el, onEnd) {
+  stopNotePlayback();
+  const note = getNote(routeId, stopId);
+  if (!note) { if (onEnd) onEnd(); return; }
+  if (el) { el.classList.add("note-playing"); noteCurrentEl = el; }
+  if (note.type === "text") {
+    if (!("speechSynthesis" in window)) { showToast("Audio not supported"); if (onEnd) onEnd(); return; }
+    const u = new SpeechSynthesisUtterance(note.content);
+    u.rate = 0.95; u.pitch = 1.05; u.volume = 1.0;
+    // Try to pick a different voice from the explainer for character
+    const voices = speechSynthesis.getVoices();
+    const noteVoice = voices.find(v => /en/i.test(v.lang) && /Karen|Charlotte|Serena|Tessa|Moira|Fiona|Samantha/i.test(v.name)) ||
+                      voices.find(v => /en[-_]GB/i.test(v.lang)) || voices[0];
+    if (noteVoice) { u.voice = noteVoice; u.lang = noteVoice.lang; }
+    u.onend = () => { if (noteCurrentEl) noteCurrentEl.classList.remove("note-playing"); noteCurrentEl = null; if (onEnd) onEnd(); };
+    u.onerror = () => { if (noteCurrentEl) noteCurrentEl.classList.remove("note-playing"); noteCurrentEl = null; if (onEnd) onEnd(); };
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } else if (note.type === "audio") {
+    const audio = new Audio(note.content);
+    noteCurrentAudio = audio;
+    audio.onended = () => { if (noteCurrentEl) noteCurrentEl.classList.remove("note-playing"); noteCurrentEl = null; noteCurrentAudio = null; if (onEnd) onEnd(); };
+    audio.onerror = () => { if (noteCurrentEl) noteCurrentEl.classList.remove("note-playing"); noteCurrentEl = null; if (onEnd) onEnd(); };
+    audio.play().catch(() => { if (onEnd) onEnd(); });
+  } else { if (onEnd) onEnd(); }
+}
+
+// Note editor state
+const NOTE_EDITOR = {
+  routeId: null, stopId: null, mode: "type",
+  recording: false, mediaRecorder: null, recordChunks: [],
+  recordStartTs: 0, recordTimer: null, recordedBlob: null, recordedDataUrl: null,
+};
+
+function openNoteEditor(routeId, stopId) {
+  const route = getRoute(routeId);
+  const stop = LANDMARKS.find(l => l.id === stopId);
+  if (!route || !stop) return;
+  NOTE_EDITOR.routeId = routeId; NOTE_EDITOR.stopId = stopId; NOTE_EDITOR.mode = "type";
+  NOTE_EDITOR.recordedBlob = null; NOTE_EDITOR.recordedDataUrl = null;
+  document.getElementById("nePlacePill").innerHTML = `<div class="thumb sm" style="background-image:url('${stop.image}')"></div><span>${stop.name} · ${route.name}</span>`;
+  document.getElementById("neText").value = "";
+  document.getElementById("neAuthor").value = "You";
+  document.getElementById("neRecordTime").textContent = "0:00";
+  document.getElementById("neRecordStatus").textContent = "Tap to record · max 90 seconds";
+  document.getElementById("neRecordPreview").innerHTML = "";
+  switchNotePane("type");
+  validateNoteSave();
+  document.getElementById("noteEditor").classList.add("active");
+  setTimeout(() => document.getElementById("neText").focus(), 350);
+}
+function closeNoteEditor() {
+  document.getElementById("noteEditor").classList.remove("active");
+  if (NOTE_EDITOR.recording) stopRecording(false);
+}
+function switchNotePane(mode) {
+  NOTE_EDITOR.mode = mode;
+  document.querySelectorAll(".ne-tab").forEach(t => t.classList.toggle("active", t.dataset.pane === mode));
+  document.getElementById("paneType").classList.toggle("hidden", mode !== "type");
+  document.getElementById("paneRecord").classList.toggle("hidden", mode !== "record");
+  validateNoteSave();
+}
+function validateNoteSave() {
+  const ok = NOTE_EDITOR.mode === "type"
+    ? document.getElementById("neText").value.trim().length > 4
+    : !!NOTE_EDITOR.recordedDataUrl;
+  document.getElementById("neSave").disabled = !ok;
+}
+function saveCurrentNote() {
+  const author = document.getElementById("neAuthor").value.trim() || "You";
+  let note;
+  if (NOTE_EDITOR.mode === "type") {
+    const text = document.getElementById("neText").value.trim();
+    if (text.length < 5) return;
+    note = { type: "text", content: text, authorName: author, duration: Math.max(8, Math.round(text.split(/\s+/).length / 2.5)), createdAt: Date.now() };
+  } else {
+    if (!NOTE_EDITOR.recordedDataUrl) return;
+    note = { type: "audio", content: NOTE_EDITOR.recordedDataUrl, authorName: author, duration: Math.round((Date.now() - NOTE_EDITOR.recordStartTs) / 1000), createdAt: Date.now() };
+  }
+  setNote(NOTE_EDITOR.routeId, NOTE_EDITOR.stopId, note);
+  closeNoteEditor();
+  // Re-render route detail to show the new note
+  if (STATE.currentRoute && STATE.currentRoute.id === NOTE_EDITOR.routeId) openRouteDetail(NOTE_EDITOR.routeId);
+  showToast("Voice note saved");
+}
+
+// Recording
+async function startRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast("Recording not supported here · use Type a note");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mr = new MediaRecorder(stream);
+    NOTE_EDITOR.mediaRecorder = mr;
+    NOTE_EDITOR.recordChunks = [];
+    NOTE_EDITOR.recordedBlob = null;
+    NOTE_EDITOR.recordedDataUrl = null;
+    NOTE_EDITOR.recordStartTs = Date.now();
+    NOTE_EDITOR.recording = true;
+    mr.ondataavailable = e => { if (e.data && e.data.size) NOTE_EDITOR.recordChunks.push(e.data); };
+    mr.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(NOTE_EDITOR.recordChunks, { type: "audio/webm" });
+      NOTE_EDITOR.recordedBlob = blob;
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        NOTE_EDITOR.recordedDataUrl = reader.result;
+        document.getElementById("neRecordPreview").innerHTML = `<audio controls src="${reader.result}"></audio><button class="ne-redo" id="neRedo">Record again</button>`;
+        document.getElementById("neRedo").addEventListener("click", () => {
+          NOTE_EDITOR.recordedDataUrl = null;
+          document.getElementById("neRecordPreview").innerHTML = "";
+          document.getElementById("neRecordStatus").textContent = "Tap to record · max 90 seconds";
+          document.getElementById("neRecordTime").textContent = "0:00";
+          validateNoteSave();
+        });
+        validateNoteSave();
+      };
+      reader.readAsDataURL(blob);
+    };
+    mr.start();
+    document.getElementById("neRecordBtn").classList.add("recording");
+    document.getElementById("neRecordBtn").innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+    document.getElementById("neRecordStatus").textContent = "Recording… tap to stop";
+    NOTE_EDITOR.recordTimer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - NOTE_EDITOR.recordStartTs) / 1000);
+      document.getElementById("neRecordTime").textContent = formatTime(elapsed);
+      if (elapsed >= 90) stopRecording(true);
+    }, 250);
+  } catch (e) {
+    showToast("Microphone permission needed · or use Type a note");
+  }
+}
+function stopRecording(commit) {
+  if (NOTE_EDITOR.mediaRecorder && NOTE_EDITOR.recording) {
+    NOTE_EDITOR.recording = false;
+    clearInterval(NOTE_EDITOR.recordTimer);
+    NOTE_EDITOR.mediaRecorder.stop();
+  }
+  document.getElementById("neRecordBtn").classList.remove("recording");
+  document.getElementById("neRecordBtn").innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a1 1 0 00-2 0 9 9 0 008 8.94V22h2v-2.06A9 9 0 0021 11a1 1 0 00-2 0 7 7 0 11-14 0z"/></svg>';
+  if (commit) document.getElementById("neRecordStatus").textContent = "Recorded · play back below";
+}
+
+// ============================================================
+// AUTH + CLOUD SYNC — Supabase email OTP, syncs to lore-api worker
+// ============================================================
+function loadSession() { try { return JSON.parse(localStorage.getItem(STORE_KEY_S) || "null"); } catch (e) { return null; } }
+function saveSession(s) { try { localStorage.setItem(STORE_KEY_S, JSON.stringify(s)); } catch (e) {} STATE.session = s; updateAuthUI(); }
+function clearSession() { try { localStorage.removeItem(STORE_KEY_S); } catch (e) {} STATE.session = null; updateAuthUI(); }
+function isSignedIn() { return !!STATE.session?.access_token && (STATE.session.expires_at || 0) > Date.now(); }
+function authedHeaders() { return STATE.session?.access_token ? { "Authorization": `Bearer ${STATE.session.access_token}` } : {}; }
+
+async function authSendCode(email) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+    method: "POST",
+    headers: { "apikey": SUPABASE_ANON_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ email, create_user: true }),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(err.includes("rate") ? "Too many attempts — wait a minute" : "Couldn't send code");
+  }
+}
+
+async function authVerifyCode(email, token) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+    method: "POST",
+    headers: { "apikey": SUPABASE_ANON_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ email, token, type: "email" }),
+  });
+  if (!res.ok) throw new Error("Wrong code or expired");
+  const data = await res.json();
+  saveSession({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    user: data.user,
+    expires_at: Date.now() + ((data.expires_in || 3600) * 1000),
+  });
+  return data.user;
+}
+
+async function authSignOut() {
+  const s = loadSession();
+  if (s?.access_token) {
+    fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: "POST",
+      headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${s.access_token}` },
+    }).catch(() => {});
+  }
+  clearSession();
+}
+
+// ---------- SYNC ----------
+async function cloudSyncJournalEntry(entry) {
+  if (!isSignedIn()) return;
+  const lm = findLandmark(entry.landmarkId);
+  if (!lm) return;
+  try {
+    await fetch(`${LORE_API_BASE}/api/journal`, {
+      method: "POST",
+      headers: { ...authedHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        place_id: entry.landmarkId,
+        place_name: lm.name,
+        place_image_url: lm.image,
+        place_lat: lm.lat,
+        place_lng: lm.lng,
+        place_city: lm.city || null,
+        place_country: lm.country || null,
+        played_at: new Date(entry.ts).toISOString(),
+      }),
+    });
+  } catch (e) { /* silent — local already saved */ }
+}
+
+async function cloudSyncRoute(route) {
+  if (!isSignedIn()) return;
+  if (!route.isMine && !(route.author === "You")) return;
+  try {
+    const stop_metadata = route.stops.map(sid => {
+      const lm = findLandmark(sid) || {};
+      return { id: sid, name: lm.name || sid, image_url: lm.image, lat: lm.lat, lng: lm.lng, city: lm.city, country: lm.country };
+    });
+    const res = await fetch(`${LORE_API_BASE}/api/route`, {
+      method: "POST",
+      headers: { ...authedHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        id: route.id?.startsWith("user-") ? undefined : route.id, // let server assign UUIDs for new routes
+        name: route.name,
+        description: route.description,
+        author_name: STATE.session?.user?.email?.split("@")[0] || "You",
+        city: route.city, country: route.country,
+        stops: route.stops,
+        estimated_time: route.estimatedTime,
+        stop_metadata,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // Stash the cloud route id and public token back onto the local route
+      const all = loadRoutes();
+      const idx = all.findIndex(r => r.id === route.id);
+      if (idx !== -1) {
+        all[idx].cloudId = data.id;
+        all[idx].publicToken = data.public_token;
+        saveRoutes(all);
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+
+async function cloudPullJournal() {
+  if (!isSignedIn()) return;
+  try {
+    const res = await fetch(`${LORE_API_BASE}/api/journal`, { headers: authedHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    const local = loadJournal();
+    const localKeys = new Set(local.map(e => `${e.landmarkId}::${Math.floor(e.ts / 60000)}`));
+    let added = 0;
+    for (const e of data.entries || []) {
+      const ts = new Date(e.played_at).getTime();
+      const key = `${e.place_id}::${Math.floor(ts / 60000)}`;
+      if (!localKeys.has(key)) { local.push({ landmarkId: e.place_id, ts }); added++; }
+    }
+    if (added) { saveJournal(local); if (STATE.view === "journal") renderJournal(); }
+  } catch (e) {}
+}
+
+async function cloudPullRoutes() {
+  if (!isSignedIn()) return;
+  try {
+    const res = await fetch(`${LORE_API_BASE}/api/route/mine`, { headers: authedHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    const local = loadRoutes();
+    let added = 0;
+    for (const r of data.routes || []) {
+      const exists = local.find(l => l.cloudId === r.id || l.name === r.name);
+      if (!exists) {
+        local.push({
+          id: "cloud-" + r.id, cloudId: r.id, publicToken: r.public_token,
+          name: r.name, description: r.description, author: r.author_name || "You", initials: "Y",
+          city: r.city, country: r.country, stops: r.stops || [],
+          estimatedTime: r.estimated_time, visited: [], isMine: true,
+        });
+        added++;
+      }
+    }
+    if (added) { saveRoutes(local); if (STATE.view === "routes") renderRoutes(); }
+  } catch (e) {}
+}
+
+async function cloudPushAll() {
+  if (!isSignedIn()) return;
+  for (const e of loadJournal()) await cloudSyncJournalEntry(e);
+  for (const r of loadRoutes()) if (r.isMine) await cloudSyncRoute(r);
+}
+
+// ---------- UI ----------
+function updateAuthUI() {
+  const chip = document.getElementById("authChip");
+  const avatar = document.getElementById("authChipAvatar");
+  const label = document.getElementById("authChipLabel");
+  if (!chip) return;
+  if (isSignedIn()) {
+    const email = STATE.session.user?.email || "?";
+    const initial = email[0].toUpperCase();
+    chip.classList.remove("anon");
+    avatar.textContent = initial;
+    label.innerHTML = '<span class="sync-pulse"></span>Synced';
+  } else {
+    chip.classList.add("anon");
+    avatar.textContent = "?";
+    label.textContent = "Sign in";
+  }
+}
+
+function openAuthModal() {
+  const overlay = document.getElementById("authOverlay");
+  if (isSignedIn()) {
+    document.getElementById("authStateAnon").style.display = "none";
+    document.getElementById("authStateCode").style.display = "none";
+    document.getElementById("authStateSignedIn").style.display = "block";
+    const email = STATE.session.user?.email || "";
+    document.getElementById("authSignedInEmail").textContent = email;
+    document.getElementById("authAvatarBig").textContent = (email[0] || "?").toUpperCase();
+    renderVoicePicker();
+  } else {
+    document.getElementById("authStateAnon").style.display = "block";
+    document.getElementById("authStateCode").style.display = "none";
+    document.getElementById("authStateSignedIn").style.display = "none";
+    document.getElementById("authStatus").textContent = "";
+  }
+  overlay.classList.add("active");
+}
+
+function renderVoicePicker() {
+  const container = document.getElementById("voiceOptions");
+  if (!container) return;
+  const currentId = loadVoicePref();
+  container.innerHTML = "";
+  for (const v of VOICES) {
+    const opt = document.createElement("button");
+    opt.type = "button";
+    opt.className = "voice-option" + (v.id === currentId ? " selected" : "");
+    opt.style.cssText = "border:1px solid var(--line);font-family:inherit;width:100%";
+    opt.innerHTML = `<div class="v-radio"></div><div class="v-info"><div class="v-name">${v.name}</div><div class="v-desc">${v.description}</div></div><div class="v-note">${v.note}</div>`;
+    opt.addEventListener("click", () => { saveVoicePref(v.id); renderVoicePicker(); showToast(`Voice set to ${v.name}`); });
+    container.appendChild(opt);
+  }
+}
+function closeAuthModal() { document.getElementById("authOverlay").classList.remove("active"); }
+
+// ============================================================
+// LIVE LANDMARK RESOLUTION — real OSM + Wikipedia, no API keys
+// ============================================================
+const STORE_KEY_DL = "lore.discovered.v1";
+function loadDiscovered() { try { return JSON.parse(localStorage.getItem(STORE_KEY_DL) || "{}"); } catch (e) { return {}; } }
+function saveDiscovered(d) { try { localStorage.setItem(STORE_KEY_DL, JSON.stringify(d)); } catch (e) {} }
+function rememberDiscovered(lm) { const d = loadDiscovered(); d[lm.id] = lm; saveDiscovered(d); }
+function findLandmark(id) { return LANDMARKS.find(l => l.id === id) || loadDiscovered()[id] || null; }
+
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
+];
+async function fetchOverpass(query) {
+  for (const ep of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(ep, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+      });
+      if (res.ok) return await res.json();
+    } catch (e) { /* try next */ }
+  }
+  throw new Error("All Overpass endpoints failed");
+}
+
+async function findNearbyLandmarks(lat, lng, radius = 800) {
+  const q = `[out:json][timeout:25];(node["historic"]["name"](around:${radius},${lat},${lng});node["tourism"~"attraction|museum|monument|gallery|artwork"]["name"](around:${radius},${lat},${lng});node["amenity"="place_of_worship"]["name"](around:${radius},${lat},${lng});way["historic"]["name"](around:${radius},${lat},${lng});way["tourism"~"attraction|museum|monument|gallery"]["name"](around:${radius},${lat},${lng}););out center 30;`;
+  const data = await fetchOverpass(q);
+  return (data.elements || [])
+    .map(el => ({
+      osmId: `${el.type}/${el.id}`,
+      name: el.tags?.["name:en"] || el.tags?.name,
+      lat: el.lat || el.center?.lat,
+      lng: el.lon || el.center?.lon,
+      wikipedia: el.tags?.wikipedia,
+      wikidata: el.tags?.wikidata,
+      tags: el.tags || {},
+      distance: haversine(lat, lng, el.lat || el.center?.lat, el.lon || el.center?.lon),
+    }))
+    .filter(l => l.name && (l.wikipedia || l.wikidata))
+    .sort((a, b) => a.distance - b.distance);
+}
+
+async function fetchWikipediaSummary(article) {
+  let lang = "en", title = article;
+  if (article.includes(":")) { const [l, ...rest] = article.split(":"); lang = l; title = rest.join(":"); }
+  const res = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, "_"))}`);
+  if (!res.ok) throw new Error(`Wiki summary ${res.status}`);
+  return await res.json();
+}
+async function fetchWikipediaExtract(article) {
+  let lang = "en", title = article;
+  if (article.includes(":")) { const [l, ...rest] = article.split(":"); lang = l; title = rest.join(":"); }
+  const url = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=&explaintext=&exsentences=12&format=json&origin=*&titles=${encodeURIComponent(title.replace(/ /g, "_"))}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Wiki extract ${res.status}`);
+  const data = await res.json();
+  const pages = data.query?.pages || {};
+  return Object.values(pages)[0]?.extract || "";
+}
+
+function buildLiveLandmark(osmEntry, wikiSummary, extractText) {
+  const text = (extractText && extractText.length > (wikiSummary.extract || "").length) ? extractText : (wikiSummary.extract || "");
+  const cleaned = text
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\[\d+\]/g, "")
+    .trim();
+  const sentences = cleaned.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.length > 25);
+  const paragraphs = [];
+  let cur = [];
+  for (const s of sentences) {
+    cur.push(s);
+    if (cur.length >= 3) { paragraphs.push(cur.join(" ")); cur = []; }
+  }
+  if (cur.length) paragraphs.push(cur.join(" "));
+  const finalParas = paragraphs.slice(0, 4);
+  if (!finalParas.length) finalParas.push(cleaned || "No description available yet for this place.");
+  return {
+    id: `live-${osmEntry.osmId.replace(/\//g, "-")}`,
+    name: wikiSummary.title || osmEntry.name,
+    location: wikiSummary.description ? wikiSummary.description.charAt(0).toUpperCase() + wikiSummary.description.slice(1) : `Near ${osmEntry.name}`,
+    city: "", country: "",
+    lat: osmEntry.lat, lng: osmEntry.lng,
+    image: wikiSummary.originalimage?.source || wikiSummary.thumbnail?.source || "",
+    transcript: finalParas,
+    sources: [`Wikipedia: ${wikiSummary.title || osmEntry.name}`, `OpenStreetMap: ${osmEntry.osmId}`],
+    isLive: true,
+    wikipediaUrl: wikiSummary.content_urls?.desktop?.page,
+  };
+}
+
+// ============================================================
+// REAL GPS — opt-in via demo picker
+// ============================================================
+function tryRealGPS() {
+  if (!navigator.geolocation) { showToast("GPS not supported in this browser"); return; }
+  showToast("Asking for your location…");
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const { latitude, longitude } = pos.coords;
+    closePicker();
+    // 1. First try the curated set within 1.5 km — instant, hand-written quality.
+    let best = null, bestD = Infinity;
+    for (const lm of LANDMARKS) {
+      const d = haversine(latitude, longitude, lm.lat, lm.lng);
+      if (d < bestD) { bestD = d; best = lm; }
+    }
+    if (best && bestD < 1500) {
+      STATE.currentLandmark = best; renderHome();
+      showToast(`Found ${best.name} · ${Math.round(bestD)} m away (curated)`);
+      return;
+    }
+    // 2. Otherwise go live: OSM Overpass → Wikipedia
+    showToast("Looking on OpenStreetMap…");
+    try {
+      let candidates = await findNearbyLandmarks(latitude, longitude, 800);
+      if (!candidates.length) {
+        showToast("Nothing within 800 m · widening to 5 km…");
+        candidates = await findNearbyLandmarks(latitude, longitude, 5000);
+      }
+      if (!candidates.length) { showToast("No notable landmarks within 5 km · use demo mode"); return; }
+      const enCandidate = candidates.find(c => c.wikipedia?.toLowerCase().startsWith("en:")) || candidates[0];
+      if (!enCandidate.wikipedia?.toLowerCase().startsWith("en:")) {
+        showToast(`Found ${enCandidate.name} · no English Wikipedia, sorry`);
+        return;
+      }
+      showToast(`Reading Wikipedia: ${enCandidate.name}…`);
+      const summary = await fetchWikipediaSummary(enCandidate.wikipedia);
+      let extract = "";
+      try { extract = await fetchWikipediaExtract(enCandidate.wikipedia); } catch (e) {}
+      const lm = buildLiveLandmark(enCandidate, summary, extract);
+      rememberDiscovered(lm);
+      STATE.currentLandmark = lm;
+      renderHome();
+      showToast(`Live · ${lm.name} (${Math.round(enCandidate.distance)} m)`);
+    } catch (e) {
+      console.error(e);
+      showToast("Couldn't reach OSM/Wikipedia · using demo mode");
+    }
+  }, err => {
+    showToast(err.code === 1 ? "Permission denied — pick from list instead" : "Couldn't read GPS — pick from list");
+  }, { timeout: 15_000, maximumAge: 60_000 });
+}
+
+// ============================================================
+// PICKERS — demo location & add-stop both use the same picker
+// ============================================================
+function openPicker(mode, callback) {
+  STATE.pickerMode = mode; STATE.pickerCallback = callback || null;
+  STATE.pickerCityFilter = "All";
+  if (mode === "demo") {
+    document.getElementById("pickerEyebrow").textContent = "Demo mode";
+    document.getElementById("pickerTitle").textContent = "Pretend you're here";
+    document.getElementById("pickerSubtitle").textContent = "Pick a famous place to simulate standing in front of it.";
+  } else {
+    document.getElementById("pickerEyebrow").textContent = "Add a stop";
+    document.getElementById("pickerTitle").textContent = "Pick a place";
+    document.getElementById("pickerSubtitle").textContent = "Filter by city, then choose a place to add to your route.";
+  }
+  renderPickerFilters();
+  renderPickerList();
+  document.getElementById("pickerOverlay").classList.add("active");
+}
+function closePicker() { document.getElementById("pickerOverlay").classList.remove("active"); }
+function renderPickerFilters() {
+  const cities = ["All", ...Array.from(new Set(LANDMARKS.map(l => l.city)))];
+  const f = document.getElementById("pickerFilters"); f.innerHTML = "";
+  for (const c of cities) {
+    const b = document.createElement("button");
+    b.className = "picker-filter" + (STATE.pickerCityFilter === c ? " active" : "");
+    b.textContent = c;
+    b.addEventListener("click", () => { STATE.pickerCityFilter = c; renderPickerFilters(); renderPickerList(); });
+    f.appendChild(b);
+  }
+}
+function renderPickerList() {
+  const list = document.getElementById("pickerList"); list.innerHTML = "";
+  // GPS card only in demo-location mode
+  if (STATE.pickerMode === "demo") {
+    const gps = document.createElement("div");
+    gps.className = "gps-card";
+    gps.innerHTML = `<div class="gps-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="3"/><path d="M12 21s-7-7.5-7-12a7 7 0 0114 0c0 4.5-7 12-7 12z"/></svg></div>
+      <div class="gps-info"><div class="gps-title">Use my real location</div><div class="gps-sub">If you're near one of the 19 landmarks, we'll detect it.</div></div>
+      <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>`;
+    gps.addEventListener("click", () => tryRealGPS());
+    list.appendChild(gps);
+  }
+  const filtered = STATE.pickerCityFilter === "All" ? LANDMARKS : LANDMARKS.filter(l => l.city === STATE.pickerCityFilter);
+  for (const lm of filtered) {
+    const item = document.createElement("div"); item.className = "nearby-item";
+    item.innerHTML = `
+      <div class="thumb" style="background-image:url('${lm.image}')"></div>
+      <div class="nearby-info"><div class="nearby-name">${lm.name}</div><div class="nearby-meta">${lm.city}, ${lm.country}</div></div>
+      <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>`;
+    item.addEventListener("click", () => {
+      if (STATE.pickerMode === "demo") {
+        STATE.currentLandmark = lm; renderHome(); closePicker(); showToast("Now standing near " + lm.name);
+      } else if (STATE.pickerMode === "addStop") {
+        if (STATE.pickerCallback) STATE.pickerCallback(lm.id);
+        closePicker();
+      }
+    });
+    list.appendChild(item);
+  }
+}
+
+// ============================================================
+// "ADD TO ROUTE" PICKER
+// ============================================================
+function openAddToRoutePicker(landmarkId) {
+  const all = loadRoutes().filter(r => r.isMine);
+  const list = document.getElementById("routePickerList");
+  list.innerHTML = "";
+  if (!all.length) {
+    list.innerHTML = `<div class="empty" style="padding:20px 16px 8px;text-align:left"><p class="muted" style="font-size:13px;margin:0">You haven't built any routes yet. Create your first one with this place as a starting point.</p></div>`;
+  }
+  for (const r of all) {
+    const has = r.stops.includes(landmarkId);
+    const cover = LANDMARKS.find(l => l.id === r.stops[0])?.image || "";
+    const item = document.createElement("div"); item.className = "nearby-item";
+    item.innerHTML = `
+      <div class="thumb" style="background-image:url('${cover}')"></div>
+      <div class="nearby-info"><div class="nearby-name">${r.name}</div><div class="nearby-meta">${r.stops.length} stops · ${r.city}${has ? " · already in route" : ""}</div></div>
+      <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>`;
+    if (!has) {
+      item.addEventListener("click", () => {
+        const updated = [...r.stops, landmarkId];
+        updateRoute(r.id, { stops: updated, estimatedTime: estimateTime(updated) });
+        document.getElementById("routePicker").classList.remove("active");
+        showToast(`Added to "${r.name}"`);
+      });
+    } else {
+      item.style.opacity = "0.55";
+    }
+    list.appendChild(item);
+  }
+  document.getElementById("routePicker").classList.add("active");
+}
+
+// ============================================================
+// SHARE MODAL
+// ============================================================
+function openShareModal(route, landmarkOnly) {
+  const o = document.getElementById("shareOverlay");
+  let url, title, subtitle;
+  if (landmarkOnly) {
+    const lm = landmarkOnly;
+    title = `Share "${lm.name}"`;
+    subtitle = "Send this place to a friend. They can listen for free.";
+    url = `lore.app/p/${lm.id.toLowerCase()}-${randCode()}`;
+  } else {
+    title = `Share "${route.name}"`;
+    subtitle = "Send this route to anyone. They don't need an account to follow it.";
+    url = `lore.app/r/${route.id}-${randCode()}`;
+  }
+  document.getElementById("shareTitle").textContent = title;
+  document.getElementById("shareSubtitle").textContent = subtitle;
+  document.getElementById("shareUrl").textContent = url;
+  // QR
+  const qrEl = document.getElementById("shareQR");
+  qrEl.innerHTML = "";
+  try {
+    const qr = qrcode(0, 'M'); qr.addData(url); qr.make();
+    const img = qr.createImgTag(5, 0);
+    qrEl.innerHTML = img;
+  } catch (e) {
+    qrEl.innerHTML = `<div style="width:180px;height:180px;background:#000;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;border-radius:8px">QR</div>`;
+  }
+  o.classList.add("active");
+  o.dataset.url = url;
+}
+function randCode() { return Math.random().toString(36).slice(2, 8); }
+
+// ============================================================
+// TOAST
+// ============================================================
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  if ("speechSynthesis" in window) { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices(); }
+
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setView(t.dataset.view)));
+  document.getElementById("tapBtn").addEventListener("click", () => openExplainer(STATE.currentLandmark));
+  document.getElementById("demoPill").addEventListener("click", () => openPicker("demo"));
+
+  // Picker overlays
+  document.getElementById("pickerOverlay").addEventListener("click", e => { if (e.target.id === "pickerOverlay") closePicker(); });
+  document.getElementById("routePicker").addEventListener("click", e => { if (e.target.id === "routePicker") document.getElementById("routePicker").classList.remove("active"); });
+  document.getElementById("routePickerNew").addEventListener("click", () => {
+    const lmId = STATE.currentLandmark?.id;
+    document.getElementById("routePicker").classList.remove("active");
+    openCreateRoute(lmId);
+  });
+
+  // Explainer
+  document.getElementById("closeExplainer").addEventListener("click", closeExplainer);
+  document.getElementById("playBtn").addEventListener("click", togglePlay);
+  document.getElementById("shareBtn").addEventListener("click", () => openShareModal(null, STATE.currentLandmark));
+  document.getElementById("addToRouteBtn").addEventListener("click", () => openAddToRoutePicker(STATE.currentLandmark.id));
+  document.getElementById("addToRouteInline").addEventListener("click", () => openAddToRoutePicker(STATE.currentLandmark.id));
+
+  // Routes
+  document.getElementById("newRouteBtn").addEventListener("click", () => openCreateRoute(null));
+  document.getElementById("rdBack").addEventListener("click", closeRouteDetail);
+  document.getElementById("rdShare").addEventListener("click", () => openShareModal(STATE.currentRoute));
+  document.getElementById("startRouteBtn").addEventListener("click", startFollowing);
+
+  // Following
+  document.getElementById("followExit").addEventListener("click", exitFollowing);
+  document.getElementById("followNext").addEventListener("click", followNext);
+  document.getElementById("followSkip").addEventListener("click", followSkip);
+  document.getElementById("followListen").addEventListener("click", followListen);
+  document.getElementById("completeShare").addEventListener("click", () => { document.getElementById("complete").classList.remove("active"); openShareModal(STATE.currentRoute); });
+  document.getElementById("completeDone").addEventListener("click", () => { document.getElementById("complete").classList.remove("active"); openRouteDetail(STATE.currentRoute.id); });
+
+  // Create route
+  document.getElementById("crCancel").addEventListener("click", closeCreateRoute);
+  document.getElementById("crSave").addEventListener("click", saveDraft);
+  document.getElementById("crName").addEventListener("input", validateDraft);
+  document.getElementById("crAddStop").addEventListener("click", () => {
+    openPicker("addStop", (lmId) => {
+      if (!STATE.draftRoute.stops.includes(lmId)) STATE.draftRoute.stops.push(lmId);
+      renderDraftStops();
+    });
+  });
+
+  // Share modal
+  document.getElementById("shareClose").addEventListener("click", () => document.getElementById("shareOverlay").classList.remove("active"));
+  document.getElementById("shareOverlay").addEventListener("click", e => { if (e.target.id === "shareOverlay") document.getElementById("shareOverlay").classList.remove("active"); });
+  document.getElementById("copyLinkBtn").addEventListener("click", () => {
+    const url = document.getElementById("shareOverlay").dataset.url || document.getElementById("shareUrl").textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText("https://" + url);
+    showToast("Link copied to clipboard");
+  });
+  document.querySelectorAll(".share-channel").forEach(el => el.addEventListener("click", () => showToast(`Opening ${el.dataset.ch}…`)));
+
+  // Note editor
+  document.getElementById("neCancel").addEventListener("click", closeNoteEditor);
+  document.getElementById("neSave").addEventListener("click", saveCurrentNote);
+  document.querySelectorAll(".ne-tab").forEach(t => t.addEventListener("click", () => switchNotePane(t.dataset.pane)));
+  document.getElementById("neText").addEventListener("input", validateNoteSave);
+  document.getElementById("neRecordBtn").addEventListener("click", () => {
+    if (NOTE_EDITOR.recording) stopRecording(true);
+    else startRecording();
+  });
+
+  // Auth
+  document.getElementById("authChip")?.addEventListener("click", openAuthModal);
+  document.getElementById("authClose")?.addEventListener("click", closeAuthModal);
+  document.getElementById("authSignedInClose")?.addEventListener("click", closeAuthModal);
+  document.getElementById("authOverlay")?.addEventListener("click", e => { if (e.target.id === "authOverlay") closeAuthModal(); });
+  document.getElementById("authBackBtn")?.addEventListener("click", () => {
+    document.getElementById("authStateAnon").style.display = "block";
+    document.getElementById("authStateCode").style.display = "none";
+  });
+  document.getElementById("authSendBtn")?.addEventListener("click", async () => {
+    const email = document.getElementById("authEmail").value.trim();
+    const status = document.getElementById("authStatus");
+    if (!email.includes("@")) { status.textContent = "Type your email first"; status.className = "auth-status error"; return; }
+    const btn = document.getElementById("authSendBtn");
+    btn.disabled = true; btn.textContent = "Sending…"; status.textContent = ""; status.className = "auth-status";
+    try {
+      await authSendCode(email);
+      document.getElementById("authStateAnon").style.display = "none";
+      document.getElementById("authStateCode").style.display = "block";
+      document.getElementById("authCodeEmail").textContent = email;
+      document.getElementById("authCode").value = "";
+      setTimeout(() => document.getElementById("authCode").focus(), 200);
+    } catch (e) {
+      status.textContent = e.message || "Couldn't send"; status.className = "auth-status error";
+    }
+    btn.disabled = false; btn.textContent = "Send code";
+  });
+  document.getElementById("authVerifyBtn")?.addEventListener("click", async () => {
+    const email = document.getElementById("authEmail").value.trim();
+    const code = document.getElementById("authCode").value.trim();
+    const status = document.getElementById("authVerifyStatus");
+    if (code.length < 6) { status.textContent = "That code looks too short"; status.className = "auth-status error"; return; }
+    const btn = document.getElementById("authVerifyBtn");
+    btn.disabled = true; btn.textContent = "Checking…"; status.textContent = ""; status.className = "auth-status";
+    try {
+      await authVerifyCode(email, code);
+      status.textContent = "Signed in · syncing your trip…"; status.className = "auth-status";
+      // Push existing local data up, then pull anything from cloud we don't have
+      await cloudPushAll();
+      await cloudPullJournal();
+      await cloudPullRoutes();
+      setTimeout(() => { closeAuthModal(); showToast("Synced · everything is in the cloud now"); }, 600);
+    } catch (e) {
+      status.textContent = e.message || "Wrong code"; status.className = "auth-status error";
+    }
+    btn.disabled = false; btn.textContent = "Verify";
+  });
+  document.getElementById("authSignOutBtn")?.addEventListener("click", async () => {
+    await authSignOut();
+    closeAuthModal();
+    showToast("Signed out · this device is now anonymous");
+  });
+
+  // ----- Magic-link callback parser -----
+  // If the user arrives via an email link, the URL hash contains #access_token=...&refresh_token=...&expires_in=...
+  // Parse it, store the session, then clean the URL so a refresh doesn't re-process.
+  if (location.hash && location.hash.includes("access_token=")) {
+    const params = new URLSearchParams(location.hash.slice(1));
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    const expires_in = parseInt(params.get("expires_in") || "3600", 10);
+    if (access_token) {
+      // Fetch the user record to populate session.user
+      fetch(`${SUPABASE_URL}/auth/v1/user`, { headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${access_token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(user => {
+          saveSession({ access_token, refresh_token, user, expires_at: Date.now() + (expires_in * 1000) });
+          showToast("Signed in · syncing your trip…");
+          cloudPushAll().then(() => { cloudPullJournal(); cloudPullRoutes(); });
+          // Clean the hash so refresh doesn't re-trigger
+          history.replaceState(null, "", location.pathname + location.search);
+        })
+        .catch(() => {});
+    } else if (params.get("error")) {
+      showToast(params.get("error_description") || "Sign-in link expired");
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  }
+
+  // Load session from storage on startup
+  STATE.session = loadSession();
+  updateAuthUI();
+  // If we're signed in, kick off a background sync
+  if (isSignedIn()) {
+    cloudPullJournal();
+    cloudPullRoutes();
+  }
+
+  // Onboarding
+  document.getElementById("startBtn").addEventListener("click", () => {
+    document.getElementById("onboarding").classList.remove("active");
+    renderHome();
+  });
+
+  renderHome();
+}
+init();
+</script>
+</body>
+</html>

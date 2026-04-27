@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A2A45"/>
+      <stop offset="100%" stop-color="#0F1B2D"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="35%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#C9A961" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#C9A961" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#D9B97A"/>
+      <stop offset="50%" stop-color="#C9A961"/>
+      <stop offset="100%" stop-color="#A8893F"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
+
+  <!-- Concentric audio waves emanating from the L (subtle) -->
+  <g stroke="#C9A961" stroke-width="3" fill="none" opacity="0.18">
+    <circle cx="256" cy="256" r="200"/>
+    <circle cx="256" cy="256" r="160"/>
+    <circle cx="256" cy="256" r="120"/>
+  </g>
+
+  <!-- Serif L (drawn as paths for crisp scaling) -->
+  <g fill="url(#brass)">
+    <!-- Main L stroke: vertical -->
+    <path d="M 200 130
+             L 248 130
+             L 248 350
+             L 360 350
+             L 360 320
+             Q 360 308 348 308
+             L 290 308
+             Q 280 308 280 298
+             L 280 130
+             Q 280 118 268 118
+             L 220 118
+             Q 200 118 200 138 Z"/>
+    <!-- Serif feet on the vertical -->
+    <path d="M 195 130 L 285 130 L 285 142 L 195 142 Z" opacity="0.85"/>
+    <path d="M 195 350 L 285 350 L 285 362 L 195 362 Z" opacity="0.85"/>
+    <!-- Subtle highlight on the L -->
+    <path d="M 210 145 L 218 145 L 218 340 L 210 340 Z" fill="#FFFFFF" opacity="0.18"/>
+  </g>
+
+  <!-- Tiny decorative dot at the bottom -->
+  <circle cx="256" cy="430" r="4" fill="#C9A961" opacity="0.6"/>
+</svg>

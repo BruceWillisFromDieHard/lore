@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lore">
+<meta name="theme-color" content="#0F1B2D">
+<title>A route on Lore</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<!-- Open Graph for rich previews when shared -->
+<meta property="og:title" content="A walking route on Lore">
+<meta property="og:description" content="A pocket audio guide. Tap each stop to hear the story — and a personal note from whoever made the route.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="icon.svg">
+<style>
+  :root {
+    --navy: #0F1B2D; --navy-2: #1A2A45;
+    --brass: #C9A961; --brass-deep: #A8893F;
+    --parchment: #F5F1EA; --parchment-2: #ECE5D7;
+    --ink: #1A1A1A; --muted: #6B6B6B;
+    --line: #E2DACB; --good: #2F7D4F;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--parchment); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  body { display: flex; justify-content: center; }
+  main { width: 100%; max-width: 480px; min-height: 100vh; background: var(--parchment); position: relative; }
+  h1, h2, h3 { font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass-deep); }
+  .muted { color: var(--muted); }
+
+  /* Install banner */
+  .install-banner {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--navy); color: var(--parchment);
+    padding: 10px 16px; display: flex; align-items: center; gap: 12px;
+    font-size: 13px; transform: translateY(-100%); transition: transform 320ms ease;
+  }
+  .install-banner.visible { transform: translateY(0); }
+  .install-banner .ib-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--brass); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-family: "Cormorant Garamond", serif; font-weight: 700; color: var(--navy); }
+  .install-banner .ib-text { flex: 1; line-height: 1.3; }
+  .install-banner .ib-text strong { display: block; }
+  .install-banner button { background: var(--brass); color: var(--navy); border: 0; padding: 6px 12px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .install-banner .ib-close { background: transparent; color: var(--parchment); padding: 4px 8px; opacity: 0.6; }
+
+  /* Hero */
+  .hero { height: 320px; background-size: cover; background-position: center; position: relative; }
+  .hero::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(15,27,45,0.35) 0%, transparent 35%, transparent 50%, rgba(15,27,45,0.92) 100%); }
+  .hero-titleblock { position: absolute; bottom: 22px; left: 24px; right: 24px; color: var(--parchment); }
+  .hero-author { font-size: 12px; opacity: 0.9; letter-spacing: 0.05em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .author-dot { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--brass), #B95934); color: white; font-size: 10px; font-weight: 700; text-align: center; line-height: 18px; }
+  .hero-name { font-family: "Cormorant Garamond", serif; font-size: 34px; line-height: 1.05; font-weight: 600; text-shadow: 0 2px 18px rgba(0,0,0,0.4); }
+  .hero-loc { font-size: 14px; opacity: 0.92; margin-top: 6px; text-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+
+  /* Body */
+  .body { padding: 22px 24px 60px; }
+  .summary { display: flex; gap: 12px; margin-bottom: 18px; padding: 14px 16px; background: white; border: 1px solid var(--line); border-radius: 14px; }
+  .summary .stat { text-align: center; flex: 1; }
+  .summary .stat-num { font-family: "Cormorant Garamond", serif; font-size: 22px; font-weight: 600; color: var(--navy); }
+  .summary .stat-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+  .desc { font-size: 16px; line-height: 1.55; margin: 12px 0 22px; }
+
+  /* Stops */
+  .stop {
+    background: white; border: 1px solid var(--line); border-radius: 16px;
+    margin-bottom: 12px; overflow: hidden;
+  }
+  .stop-head { padding: 14px; display: flex; gap: 12px; align-items: center; cursor: pointer; }
+  .stop-head:active { background: var(--parchment-2); }
+  .stop-num { width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: var(--parchment); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; font-family: -apple-system, sans-serif; }
+  .stop-thumb { width: 60px; height: 60px; border-radius: 12px; background-size: cover; background-position: center; background-color: var(--parchment-2); flex-shrink: 0; }
+  .stop-info { flex: 1; min-width: 0; }
+  .stop-name { font-family: "Cormorant Garamond", serif; font-size: 19px; font-weight: 600; line-height: 1.2; }
+  .stop-meta { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: 8px; align-items: center; }
+  .stop-chev { color: var(--muted); transition: transform 200ms; }
+  .stop.open .stop-chev { transform: rotate(90deg); }
+  .stop-body { padding: 0 18px 18px 18px; display: none; border-top: 1px solid var(--line); margin: 0 14px; }
+  .stop.open .stop-body { display: block; }
+  .stop-transcript { font-family: "Cormorant Garamond", serif; font-size: 17px; line-height: 1.55; margin: 14px 0; }
+  .stop-transcript p { margin: 0 0 12px; }
+  .stop-actions { display: flex; gap: 8px; margin: 12px 0 6px; flex-wrap: wrap; }
+  .stop-btn { background: var(--brass); color: var(--navy); border: 0; padding: 10px 16px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .stop-btn.secondary { background: rgba(15,27,45,0.08); color: var(--navy); }
+  .stop-btn svg { width: 14px; height: 14px; }
+  .note-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; background: rgba(201,169,97,0.10); border-left: 3px solid var(--brass); border-radius: 0 12px 12px 0; cursor: pointer; }
+  .note-mic { width: 28px; height: 28px; border-radius: 50%; background: var(--brass); color: var(--navy); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .note-mic svg { width: 14px; height: 14px; }
+  .note-info { flex: 1; min-width: 0; }
+  .note-author { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--brass-deep); }
+  .note-preview { font-size: 13px; color: var(--ink); margin-top: 1px; line-height: 1.3; }
+
+  /* Footer install */
+  .footer-cta { padding: 30px 24px 50px; text-align: center; border-top: 1px solid var(--line); margin-top: 30px; background: linear-gradient(180deg, var(--parchment-2), var(--parchment)); }
+  .footer-cta h3 { font-size: 22px; margin-bottom: 8px; }
+  .footer-cta p { font-size: 14px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+  .footer-cta .install-btn { background: var(--navy); color: var(--parchment); border: 0; padding: 14px 26px; border-radius: 14px; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+
+  /* Empty / loading states */
+  .state { padding: 80px 32px; text-align: center; color: var(--muted); }
+  .state h2 { color: var(--ink); margin-bottom: 8px; }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%) translateY(-20px);
+    background: rgba(15,27,45,0.96); color: var(--parchment);
+    padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    opacity: 0; transition: all 240ms; pointer-events: none; z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<main id="app">
+  <div class="install-banner" id="installBanner">
+    <div class="ib-icon">L</div>
+    <div class="ib-text">
+      <strong>Install Lore</strong>
+      Save your own routes too
+    </div>
+    <button id="installBtn">Install</button>
+    <button class="ib-close" id="closeBanner" aria-label="Close">×</button>
+  </div>
+
+  <div id="content">
+    <div class="state"><h2>Loading route…</h2><p>One moment.</p></div>
+  </div>
+
+  <div class="footer-cta">
+    <h3>Build your own route</h3>
+    <p>Lore turns the world into a guided museum. Get the app — it's free.</p>
+    <a class="install-btn" href="index.html">Open Lore</a>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// Public route view — opens shared route links like lore.app/r/abc123
+// In production, fetches from /api/route/:token. In demo, falls back to seeded data.
+
+// ---------- DEMO SEED (mirrors prototype) ----------
+const SEED_ROUTES = {
+  "andrew-paris": {
+    id: "andrew-paris",
+    name: "Paris in a weekend",
+    author: "Andrew K.",
+    initials: "A",
+    city: "Paris", country: "France",
+    description: "Three icons in twenty-four hours of walking. Start at the river, end at the tower.",
+    estimatedTime: "≈ 4 hrs walking · 5.6 km",
+    stops: ["notredame", "louvre", "eiffel"],
+  },
+  "mum-london": {
+    id: "mum-london",
+    name: "Mum's London highlights",
+    author: "Helen K.",
+    initials: "H",
+    city: "London", country: "UK",
+    description: "Three places I think you'll love. Don't skip the bridge at sunset — that's when it lifts most often.",
+    estimatedTime: "≈ 3 hrs walking · 4.2 km",
+    stops: ["bigben", "buckingham", "towerbridge"],
+  },
+  "lore-rome": {
+    id: "lore-rome",
+    name: "Eternal Rome",
+    author: "Lore Editorial",
+    initials: "L",
+    city: "Rome", country: "Italy",
+    description: "A ninety-minute loop through Rome's most photographed places, with the stories that make them more than just photos.",
+    estimatedTime: "≈ 90 min walking · 2.4 km",
+    stops: ["colosseum", "pantheon", "trevi", "vatican"],
+  },
+};
+
+const SEED_LANDMARKS = {
+  notredame: { name: "Notre-Dame de Paris", location: "Île de la Cité · Paris", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Notre_Dame_de_Paris_DSC_0846w.jpg/640px-Notre_Dame_de_Paris_DSC_0846w.jpg", transcript: ["This is Notre-Dame de Paris, almost nine hundred years old. The cathedral you see is partly a survivor and partly a resurrection. On the fifteenth of April, 2019, a fire broke out in the attic during renovation work. The wooden roof — a forest of oak beams cut from twenty-one hectares of medieval woodland — burned for fifteen hours. The famous spire collapsed. Live television showed Parisians weeping in the streets.", "But the stone vaulting underneath did its job. It held the worst of the fire away from the nave below. The two great rose windows, the relics, the bells, the iconic west façade with its twin towers — all survived. Within hours, nearly a billion euros had been pledged for the rebuild.", "Five years later, in late 2024, Notre-Dame reopened. Two thousand craftspeople — stonemasons, oak carpenters working with medieval tools, glaziers, sculptors — restored it stone by stone."] },
+  louvre: { name: "Louvre Museum", location: "Rue de Rivoli · Paris", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Louvre_Museum_Wikimedia_Commons.jpg/640px-Louvre_Museum_Wikimedia_Commons.jpg", transcript: ["You're standing in front of the most visited museum in the world. The Louvre takes ten million visitors a year through nearly four hundred rooms — and most of them come to see one painting. The Mona Lisa, in a climate-controlled glass case, gets about thirty thousand visitors every single day, who get an average of fifteen seconds to look at her.", "But the Louvre wasn't built as a museum. It started in the twelfth century as a fortress to defend Paris from Vikings. It became a royal palace under Charles V, the home of the French monarchy for centuries, and only opened as a public museum after the Revolution in 1793 — when the people threw out the king and declared his art belonged to everyone.", "The glass pyramid in the courtyard is much younger than people think. It was added in 1989 by the Chinese-American architect I. M. Pei, and Parisians once again hated it — they called it a pharaonic absurdity. Now it's iconic."] },
+  eiffel: { name: "Eiffel Tower", location: "Champ de Mars · Paris", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg/640px-Tour_Eiffel_Wikimedia_Commons.jpg", transcript: ["Welcome to the Eiffel Tower. You're looking at one of the most photographed structures on the planet — but here's something most people don't know. When Gustave Eiffel unveiled it for the 1889 World's Fair, Parisians hated it.", "A petition signed by three hundred of the city's leading artists and writers — including Maupassant and Dumas — called it a useless and monstrous tower, a tragic street lamp that would disgrace the skyline. The plan was to tear it down after just twenty years.", "What saved it? Radio. The French military realised the tower made the perfect antenna. By the First World War, signals from its summit were intercepting German communications, and suddenly the tragic street lamp was a national treasure."] },
+  bigben: { name: "Elizabeth Tower", location: "Westminster · London", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Big.Ben.London.jpg/480px-Big.Ben.London.jpg", transcript: ["First, a small correction. The tower in front of you isn't called Big Ben. The tower is the Elizabeth Tower, renamed in 2012 for the Queen's Diamond Jubilee. Big Ben is the great bell inside it — thirteen and a half tons of bronze, the second-heaviest bell in Britain.", "When the bell was cast in 1856 it cracked almost immediately during testing. They recast it. The second one cracked too, two months after being installed in the tower. It's why Big Ben sounds slightly off-key — a distinctive, slightly mournful tone you can hear for miles.", "The clock itself is a marvel of Victorian engineering. Its accuracy is fine-tuned by stacking old British penny coins on the pendulum. Adding one penny makes the clock gain two-fifths of a second per day."] },
+  buckingham: { name: "Buckingham Palace", location: "Westminster · London", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Buckingham_Palace_from_gardens%2C_London%2C_UK_-_Diliff.jpg/640px-Buckingham_Palace_from_gardens%2C_London%2C_UK_-_Diliff.jpg", transcript: ["You're looking at the official London residence of the British monarch. Buckingham Palace has 775 rooms, including 78 bathrooms, 92 offices, and a private chapel. The Queen's gardens behind the building cover 39 acres and have their own lake.", "The flag flying above tells you whether the monarch is in. If you see the Royal Standard, the King is in residence. If you see the Union Jack, he's somewhere else.", "The palace started life as a townhouse for the Duke of Buckingham in 1703. King George the Third bought it in 1761 as a private home for his wife, Queen Charlotte, who gave birth to fourteen of her fifteen children inside."] },
+  towerbridge: { name: "Tower Bridge", location: "Tower Bridge Road · London", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Tower_Bridge_from_Shad_Thames.jpg/640px-Tower_Bridge_from_Shad_Thames.jpg", transcript: ["This is Tower Bridge, finished in 1894 — and it's much younger than people assume. Tourists often confuse it with the much older London Bridge a few hundred metres upriver, but Tower Bridge is a Victorian engineering showpiece, only about a hundred and thirty years old.", "The bridge has two purposes. It's a road bridge, but the central span — the bascule section — splits in two and lifts upward to let tall ships pass. Originally it was raised about fifty times a day. Now it's lifted around eight hundred times a year, on request, with twenty-four hours' notice.", "The two towers were dressed in stone — Cornish granite and Portland limestone — to match the medieval Tower of London right next to it. But underneath the masonry, the structure is steel."] },
+  colosseum: { name: "Colosseum", location: "Piazza del Colosseo · Rome", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseo_2020.jpg/640px-Colosseo_2020.jpg", transcript: ["You're standing at the edge of the largest amphitheatre ever built. The Colosseum was opened in the year eighty AD with a hundred days of games. Five thousand animals were killed in the inaugural festival alone.", "It seated fifty thousand people, sorted into seats by social rank — senators at the front, women and the poor up top. Crowds flowed in and out through eighty numbered entrances using the world's first ticketing system."] },
+  pantheon: { name: "Pantheon", location: "Piazza della Rotonda · Rome", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Pantheon_in_Rome.jpg/640px-Pantheon_in_Rome.jpg", transcript: ["This is the Pantheon. It has been standing here, used continuously, for nineteen hundred years. The Roman emperor Hadrian commissioned it around 125 AD. It's the best-preserved Roman building on Earth.", "Look up. That dome is one of the most extraordinary feats in architecture. It's made of unreinforced concrete and it's still — nineteen centuries later — the largest unreinforced concrete dome ever built."] },
+  trevi: { name: "Trevi Fountain", location: "Piazza di Trevi · Rome", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Trevi_Fountain%2C_Rome%2C_Italy_2_-_May_2007.jpg/640px-Trevi_Fountain%2C_Rome%2C_Italy_2_-_May_2007.jpg", transcript: ["The Trevi Fountain is the largest Baroque fountain in Rome. The water still runs through an aqueduct built in nineteen BC. Tradition says it was discovered by a young Roman virgin who showed thirsty soldiers where to dig.", "About three thousand euros are thrown into the fountain every single day. Tradition says one coin tossed over your left shoulder guarantees you'll return to Rome. The money is collected nightly and donated to the Catholic charity Caritas, which uses it to fund a supermarket for Rome's homeless."] },
+  vatican: { name: "St Peter's Basilica", location: "Vatican City", image: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/0_Bas%C3%ADlica_de_San_Pedro_-_Ciudad_del_Vaticano.JPG/640px-0_Bas%C3%ADlica_de_San_Pedro_-_Ciudad_del_Vaticano.JPG", transcript: ["You're at the centre of the Catholic Church, in the smallest country in the world. Vatican City is just over a hundred acres. St Peter's Basilica was built on the spot where the apostle Peter was crucified upside down by the emperor Nero around 64 AD.", "The current church took 120 years and the work of Bramante, Raphael, Michelangelo, and Bernini. Michelangelo designed the dome at the age of seventy-one and never lived to see it finished."] },
+};
+
+const SEED_NOTES = {
+  "mum-london::bigben": { type: "text", content: "Don't bother going inside the building. The magic is here at street level. Your father proposed to me thirty metres from where you're standing. Listen for the bell at noon — the cracked one is what gives it that mournful sound everybody hears.", authorName: "Helen K." },
+  "mum-london::buckingham": { type: "text", content: "If you've timed it right and it's eleven AM you'll catch the changing of the guard. The flag on top tells you whether the King is in. We had picnics across the park here when you were tiny.", authorName: "Helen K." },
+  "mum-london::towerbridge": { type: "text", content: "Walk across the bridge at sunset, then look back from the south side. That's the photograph you want. If you're lucky it'll lift while you're there. Your aunt and I waited two hours once.", authorName: "Helen K." },
+};
+
+// ---------- LOAD ROUTE ----------
+async function loadRoute() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("r") || params.get("t") || params.get("token");
+  // In production, fetch from /api/route/:token
+  // const apiBase = window.LORE_API_BASE || "/api";
+  // const res = await fetch(`${apiBase}/route/${token}`); ...
+  // For now: lookup in seed
+  const route = SEED_ROUTES[token] || SEED_ROUTES["mum-london"]; // default to a friendly demo
+  if (!route) {
+    document.getElementById("content").innerHTML = `<div class="state"><h2>Route not found</h2><p>The link may have expired.</p></div>`;
+    return;
+  }
+  renderRoute(route);
+}
+
+function renderRoute(route) {
+  const cover = SEED_LANDMARKS[route.stops[0]]?.image || "";
+  const html = `
+    <div class="hero" style="background-image:url('${cover}')">
+      <div class="hero-titleblock">
+        <div class="hero-author"><span class="author-dot">${route.initials}</span> A route by ${route.author}</div>
+        <div class="hero-name">${escapeHtml(route.name)}</div>
+        <div class="hero-loc">${route.city}, ${route.country}</div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="summary">
+        <div class="stat"><div class="stat-num">${route.stops.length}</div><div class="stat-label">Stops</div></div>
+        <div class="stat"><div class="stat-num">${(route.estimatedTime || "").match(/\d+/)?.[0] || "—"}${(route.estimatedTime || "").includes("hr") ? "h" : "min"}</div><div class="stat-label">Time</div></div>
+        <div class="stat"><div class="stat-num">${Object.keys(SEED_NOTES).filter(k => k.startsWith(route.id + "::")).length}</div><div class="stat-label">Notes</div></div>
+      </div>
+      <p class="desc">${escapeHtml(route.description)}</p>
+      <div class="eyebrow" style="color:var(--muted);margin-bottom:10px">The route</div>
+      ${route.stops.map((sid, i) => {
+        const lm = SEED_LANDMARKS[sid] || { name: sid, location: "", image: "", transcript: ["No content yet for this stop."] };
+        const note = SEED_NOTES[`${route.id}::${sid}`];
+        return `<div class="stop" data-i="${i}" data-stop="${sid}">
+          <div class="stop-head">
+            <div class="stop-num">${i+1}</div>
+            <div class="stop-thumb" style="background-image:url('${lm.image}')"></div>
+            <div class="stop-info">
+              <div class="stop-name">${escapeHtml(lm.name)}</div>
+              <div class="stop-meta">${lm.location.split('·')[0].trim()}${note ? ' · 🎙 1 note' : ''}</div>
+            </div>
+            <svg class="stop-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+          <div class="stop-body">
+            <div class="stop-transcript">${lm.transcript.map(p => `<p>${escapeHtml(p)}</p>`).join("")}</div>
+            <div class="stop-actions">
+              <button class="stop-btn play-explainer">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7V5z"/></svg>
+                Play explainer
+              </button>
+              <button class="stop-btn secondary stop-stop" style="display:none">Stop</button>
+            </div>
+            ${note ? `<div class="note-row play-note">
+              <div class="note-mic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zM5 11a1 1 0 00-2 0 9 9 0 008 8.94V22h2v-2.06A9 9 0 0021 11a1 1 0 00-2 0 7 7 0 11-14 0z"/></svg></div>
+              <div class="note-info"><div class="note-author">Note from ${note.authorName}</div><div class="note-preview">${escapeHtml(note.content)}</div></div>
+            </div>` : ''}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+  document.getElementById("content").innerHTML = html;
+  document.title = `${route.name} · Lore`;
+
+  // Wire stop expand/collapse + playback
+  document.querySelectorAll(".stop").forEach(el => {
+    const head = el.querySelector(".stop-head");
+    head.addEventListener("click", (e) => {
+      // Don't toggle if clicking the play button (handled separately)
+      if (e.target.closest(".stop-btn") || e.target.closest(".note-row")) return;
+      el.classList.toggle("open");
+    });
+    const stopId = el.dataset.stop;
+    const lm = SEED_LANDMARKS[stopId];
+    el.querySelector(".play-explainer")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      el.classList.add("open");
+      playText(lm.transcript.join(" "), () => {
+        const note = SEED_NOTES[`${getCurrentRoute().id}::${stopId}`];
+        if (note) {
+          showToast(`Now: note from ${note.authorName}`);
+          playText(note.content, null, true);
+        }
+      });
+      el.querySelector(".stop-stop").style.display = "inline-flex";
+    });
+    el.querySelector(".stop-stop")?.addEventListener("click", () => {
+      stopAllSpeech();
+      el.querySelector(".stop-stop").style.display = "none";
+    });
+    el.querySelector(".play-note")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const note = SEED_NOTES[`${getCurrentRoute().id}::${stopId}`];
+      if (note) playText(note.content, null, true);
+    });
+  });
+
+  // Show install banner after a moment
+  setTimeout(() => document.getElementById("installBanner").classList.add("visible"), 1200);
+}
+
+function getCurrentRoute() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("r") || params.get("t") || "mum-london";
+  return SEED_ROUTES[token] || SEED_ROUTES["mum-london"];
+}
+
+// ---------- SPEECH ----------
+let currentUtter = null;
+function playText(text, onEnd, isNote) {
+  stopAllSpeech();
+  if (!("speechSynthesis" in window)) { showToast("Audio not supported"); return; }
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.95; u.pitch = isNote ? 1.05 : 1.0;
+  const voices = speechSynthesis.getVoices();
+  const v = isNote
+    ? voices.find(v => /en/i.test(v.lang) && /Karen|Charlotte|Serena|Tessa|Moira|Fiona|Samantha/i.test(v.name)) || voices.find(v => /en[-_]GB/i.test(v.lang))
+    : voices.find(v => /en[-_]GB/i.test(v.lang) && /Daniel|Kate|Serena/i.test(v.name)) || voices.find(v => /en[-_]GB/i.test(v.lang));
+  if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = "en-GB"; }
+  u.onend = () => { currentUtter = null; if (onEnd) setTimeout(onEnd, 600); };
+  u.onerror = () => { currentUtter = null; };
+  currentUtter = u;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+function stopAllSpeech() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  currentUtter = null;
+}
+
+// ---------- INSTALL BANNER ----------
+let deferredInstall = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstall = e;
+  document.getElementById("installBanner").classList.add("visible");
+});
+document.getElementById("installBtn").addEventListener("click", async () => {
+  if (deferredInstall) {
+    deferredInstall.prompt();
+    const choice = await deferredInstall.userChoice;
+    if (choice.outcome === "accepted") showToast("Installing…");
+    deferredInstall = null;
+  } else {
+    // iOS Safari fallback
+    showToast("On iPhone: tap Share → Add to Home Screen");
+  }
+});
+document.getElementById("closeBanner").addEventListener("click", () => {
+  document.getElementById("installBanner").classList.remove("visible");
+});
+
+// ---------- TOAST ----------
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+
+// ---------- HELPERS ----------
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// ---------- BOOT ----------
+loadRoute();
+
+// SW registration
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

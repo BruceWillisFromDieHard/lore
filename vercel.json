@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/r/:token", "destination": "/route.html?r=:token" }
+  ]
+}
